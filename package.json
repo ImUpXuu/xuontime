@@ -1,11 +1,16 @@
 {
   "name": "xuontime",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Uptime-Kuma-style site monitor on EdgeOne Pages (Cloud Functions + Blob)",
-  "dependencies": {
-    "@edgeone/pages-blob": "^0.0.14",
-    "nodemailer": "^7.0.0"
+  "description": "Uptime-Kuma-style site monitor on Cloudflare Workers + D1",
+  "scripts": {
+    "dev": "wrangler dev --test-scheduled",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute xuontime --remote --file schema.sql -y",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.78.0"
   }
 }

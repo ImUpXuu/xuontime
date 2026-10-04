@@ -473,30 +473,33 @@ async function loadSettings() {
           <label class="field"><span class="lbl">历史保留天数（7-365）</span>
             <input type="number" id="s-retention" min="7" max="365" value="${s.retentionDays}" /></label>
         </div>
-        <h3>SMTP 邮件通知</h3>
+        <h3>通知设置</h3>
         <p class="muted" style="font-size:12px;margin-top:0">
-          使用邮箱服务商的 SMTP（如 QQ 邮箱：smtp.qq.com:465，密码填授权码）。</p>
+          Cloudflare Workers 无法直连 SMTP，邮件走服务商 HTTP API：
+          Brevo（免费 300 封/天，后台验证发件邮箱即可）或 Resend（需自有域名）；
+          也可接任意 webhook 自行适配企业微信/飞书/钉钉机器人格式。</p>
         <div class="grid2">
-          <label class="field"><span class="lbl">SMTP 主机</span>
-            <input type="text" id="s-host" placeholder="smtp.qq.com" value="${esc(s.smtp.host)}" /></label>
-          <label class="field"><span class="lbl">端口</span>
-            <input type="number" id="s-port" value="${s.smtp.port}" /></label>
-        </div>
-        <div class="checkline">
-          <input type="checkbox" id="s-secure" ${s.smtp.secure ? "checked" : ""} />
-          <label for="s-secure">使用 SSL/TLS（465 端口勾选，587 端口取消勾选）</label>
-        </div>
-        <div class="grid2">
-          <label class="field"><span class="lbl">账号</span>
-            <input type="text" id="s-user" value="${esc(s.smtp.user)}" /></label>
-          <label class="field"><span class="lbl">密码 / 授权码（留空保持不变）</span>
-            <input type="password" id="s-pass" placeholder="${s.smtp.pass ? "已设置" : "未设置"}" autocomplete="new-password" /></label>
+          <label class="field"><span class="lbl">通知渠道</span>
+            <select id="s-provider">
+              <option value="" ${!s.notify.provider ? "selected" : ""}>未配置</option>
+              <option value="brevo" ${s.notify.provider === "brevo" ? "selected" : ""}>Brevo 邮件 API</option>
+              <option value="resend" ${s.notify.provider === "resend" ? "selected" : ""}>Resend 邮件 API</option>
+              <option value="webhook" ${s.notify.provider === "webhook" ? "selected" : ""}>通用 Webhook</option>
+            </select></label>
+          <label class="field"><span class="lbl">API Key（留空保持不变）</span>
+            <input type="password" id="s-apikey" placeholder="${s.notify.apiKey ? "已设置" : "未设置"}" autocomplete="new-password" /></label>
         </div>
         <div class="grid2">
-          <label class="field"><span class="lbl">发件人（可选，默认取账号）</span>
-            <input type="text" id="s-from" placeholder="monitor@example.com" value="${esc(s.smtp.from)}" /></label>
-          <label class="field"><span class="lbl">收件人（多个用英文逗号分隔）*</span>
-            <input type="text" id="s-to" placeholder="me@example.com" value="${esc(s.smtp.to)}" /></label>
+          <label class="field"><span class="lbl">发件人邮箱（Brevo/Resend 必填）</span>
+            <input type="text" id="s-from" placeholder="monitor@example.com" value="${esc(s.notify.from || "")}" /></label>
+          <label class="field"><span class="lbl">收件人邮箱（多个用英文逗号分隔）</span>
+            <input type="text" id="s-to" placeholder="me@example.com" value="${esc(s.notify.to || "")}" /></label>
+        </div>
+        <div class="grid2">
+          <label class="field"><span class="lbl">Webhook 地址（webhook 渠道必填）</span>
+            <input type="text" id="s-webhook" placeholder="https://..." value="${esc(s.notify.webhookUrl || "")}" /></label>
+          <label class="field"><span class="lbl">通知标题前缀（可选）</span>
+            <input type="text" id="s-prefix" placeholder="Xuontime" value="${esc(s.notify.prefix || "")}" /></label>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn primary" id="btn-save-settings">保存设置</button>
@@ -511,14 +514,13 @@ async function loadSettings() {
           body: {
             siteTitle: $("#s-title").value,
             retentionDays: Number($("#s-retention").value),
-            smtp: {
-              host: $("#s-host").value,
-              port: Number($("#s-port").value),
-              secure: $("#s-secure").checked,
-              user: $("#s-user").value,
-              pass: $("#s-pass").value,
+            notify: {
+              provider: $("#s-provider").value,
+              apiKey: $("#s-apikey").value,
               from: $("#s-from").value,
               to: $("#s-to").value,
+              prefix: $("#s-prefix").value,
+              webhookUrl: $("#s-webhook").value,
             },
           },
         });
@@ -538,14 +540,13 @@ async function loadSettings() {
           body: {
             siteTitle: $("#s-title").value,
             retentionDays: Number($("#s-retention").value),
-            smtp: {
-              host: $("#s-host").value,
-              port: Number($("#s-port").value),
-              secure: $("#s-secure").checked,
-              user: $("#s-user").value,
-              pass: $("#s-pass").value,
+            notify: {
+              provider: $("#s-provider").value,
+              apiKey: $("#s-apikey").value,
               from: $("#s-from").value,
               to: $("#s-to").value,
+              prefix: $("#s-prefix").value,
+              webhookUrl: $("#s-webhook").value,
             },
           },
         });

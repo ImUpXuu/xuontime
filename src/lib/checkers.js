@@ -1,7 +1,7 @@
-import net from "node:net";
-import tls from "node:tls";
+// 检查器：http（fetch）/ tcp（cloudflare:sockets，动态导入以便 Node 下测试其他部分）/ push / cert
 
 const UA = "Mozilla/5.0 (compatible; Xuontime/1.0; uptime-monitor)";
+const MAX_BODY_BYTES = 1024 * 1024;
 
 export function cleanMsg(msg, max = 300) {
   return String(msg ?? "").replace(/\s+/g, " ").trim().slice(0, max);
@@ -26,7 +26,7 @@ export function describeStatus(specs) {
   return (Array.isArray(specs) && specs.length ? specs : ["200-299"]).join(" / ");
 }
 
-async function readBodyLimited(res, maxBytes = 1024 * 1024) {
+async function readBodyLimited(res, maxBytes = MAX_BODY_BYTES) {
   if (!res.body) return "";
   const reader = res.body.getReader();
   const decoder = new TextDecoder("utf-8");
@@ -51,9 +51,7 @@ async function readBodyLimited(res, maxBytes = 1024 * 1024) {
 
 export async function checkHTTP(monitor) {
   const timeoutSec = Math.min(Number(monitor.timeoutSec) || 10, 30);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutSec * 1000);
-  const start = performance.now();
+  const start = Date.now();
   try {
     const method = String(monitor.method || "GET").toUpperCase();
     const res = await fetch(monitor.url, {
@@ -61,7 +59,7 @@ export async function checkHTTP(monitor) {
       headers: { ...(monitor.headers || {}), "user-agent": UA },
       body: ["GET", "HEAD"].includes(method) ? undefined : monitor.body,
       redirect: "follow",
-      signal: controller.signal,
+      signal: AbortSignal.timeout(timeoutSec * 1000),
     });
     const statusOk = statusMatches(res.status, monitor.acceptedStatus);
     let keywordOk = true;
@@ -76,99 +74,107 @@ export async function checkHTTP(monitor) {
           : `响应正文未找到关键词「${monitor.keyword}」`;
       }
     }
-    const ms = Math.round(performance.now() - start);
+    const ms = Date.now() - start;
     if (!statusOk) {
       return { ok: false, ms, msg: `HTTP ${res.status}（期望 ${describeStatus(monitor.acceptedStatus)}）` };
     }
     if (!keywordOk) return { ok: false, ms, msg: keywordWhy };
     return { ok: true, ms, msg: `HTTP ${res.status}` };
   } catch (e) {
-    const ms = Math.round(performance.now() - start);
-    const aborted = e && (e.name === "AbortError" || e.name === "TimeoutError");
-    return { ok: false, ms, msg: aborted ? `请求超时（${timeoutSec}s）` : cleanMsg(e && (e.cause?.message || e.message)) };
-  } finally {
-    clearTimeout(timer);
+    const ms = Date.now() - start;
+    return { ok: false, ms, msg: cleanMsg(e?.message || String(e)) };
   }
 }
 
 // ---------- TCP ----------
 
-export function checkTCP(monitor) {
+export async function checkTCP(monitor) {
   const timeoutSec = Math.min(Number(monitor.timeoutSec) || 10, 30);
-  return new Promise((resolve) => {
-    const start = performance.now();
-    let settled = false;
-    const socket = net.connect({ host: monitor.host, port: Number(monitor.port) });
-    const finish = (ok, msg) => {
-      if (settled) return;
-      settled = true;
-      const ms = Math.round(performance.now() - start);
-      try { socket.destroy(); } catch { /* ignore */ }
-      resolve({ ok, ms, msg });
-    };
-    socket.setTimeout(timeoutSec * 1000);
-    socket.on("connect", () => finish(true, "TCP 连接成功"));
-    socket.on("timeout", () => finish(false, `连接超时（${timeoutSec}s）`));
-    socket.on("error", (e) => finish(false, cleanMsg(e.message)));
-  });
+  const start = Date.now();
+  let socket = null;
+  const timer = setTimeout(() => { try { socket?.close(); } catch { /* ignore */ } }, timeoutSec * 1000);
+  try {
+    let connect;
+    ({ connect } = await import("cloudflare:sockets"));
+    socket = connect({ hostname: monitor.host, port: Number(monitor.port) });
+    await socket.opened;
+    const ms = Date.now() - start;
+    try { socket.close(); } catch { /* ignore */ }
+    return { ok: true, ms, msg: "TCP 连接成功" };
+  } catch (e) {
+    const ms = Date.now() - start;
+    try { socket?.close(); } catch { /* ignore */ }
+    return { ok: false, ms, msg: cleanMsg(e?.message || String(e)) };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---------- TLS 证书 ----------
+// Workers 拿不到对端证书详情。方案：
+//   1) 过期/无效检测：fetch 该主机，TLS 层报错（证书过期/无效）→ 判失败；
+//      只要请求到达 HTTP 层（无论状态码），证书即为有效。
+//   2) 剩余天数：每日一次通过 crt.sh 公开 API 查询（失败时沿用上次缓存）。
 
-export function checkCert(monitor) {
-  const timeoutSec = Math.min(Number(monitor.timeoutSec) || 10, 30);
-  const port = Number(monitor.port) || 443;
-  return new Promise((resolve) => {
-    const start = performance.now();
-    let settled = false;
-    const socket = tls.connect({
-      host: monitor.host,
-      port,
-      servername: monitor.host,
-      rejectUnauthorized: false,
-    });
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      try { socket.destroy(); } catch { /* ignore */ }
-      resolve(result);
-    };
-    socket.setTimeout(timeoutSec * 1000);
-    socket.on("secureConnect", () => {
-      const ms = Math.round(performance.now() - start);
-      try {
-        const cert = socket.getPeerCertificate();
-        const validTo = cert && cert.valid_to ? new Date(cert.valid_to) : null;
-        if (!validTo || Number.isNaN(validTo.getTime())) {
-          return finish({ ok: false, ms, msg: "无法读取证书有效期" });
-        }
-        const daysLeft = (validTo.getTime() - Date.now()) / 86400000;
-        finish({
-          ok: daysLeft > 0,
-          ms,
-          msg: `证书剩余 ${daysLeft.toFixed(1)} 天（有效期至 ${validTo.toISOString().slice(0, 10)}）`,
-          certExpiresAt: validTo.getTime(),
-          daysLeft: Math.floor(daysLeft),
-        });
-      } catch (e) {
-        finish({ ok: false, ms, msg: cleanMsg(e.message) });
-      }
-    });
-    socket.on("timeout", () => finish({ ok: false, ms: Math.round(performance.now() - start), msg: `连接超时（${timeoutSec}s）` }));
-    socket.on("error", (e) => finish({ ok: false, ms: Math.round(performance.now() - start), msg: cleanMsg(e.message) }));
-  });
+function isTlsError(msg) {
+  return /certificat|ssl|tls|x509|ERR_TLS|UNKNOWN_TRUST/i.test(msg);
 }
 
-// ---------- Push（心跳新鲜度判定，beat 由调用方读取） ----------
+async function fetchCertDays(host) {
+  const res = await fetch(`https://crt.sh/?q=${encodeURIComponent(host)}&output=json`, {
+    headers: { "user-agent": UA },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`crt.sh HTTP ${res.status}`);
+  const list = await res.json();
+  let maxEnd = 0;
+  for (const item of list || []) {
+    const t = item?.not_after ? Date.parse(item.not_after) : 0;
+    if (Number.isFinite(t) && t > maxEnd) maxEnd = t;
+  }
+  if (!maxEnd) throw new Error("crt.sh 未返回证书");
+  return maxEnd;
+}
 
-export function checkPush(monitor, beat, now = Date.now()) {
+export async function checkCert(monitor) {
+  const timeoutSec = Math.min(Number(monitor.timeoutSec) || 10, 30);
+  const host = monitor.host;
+  const start = Date.now();
+
+  // 1) TLS 有效性
+  let ok;
+  let msg;
+  try {
+    await fetch(`https://${host}/`, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(timeoutSec * 1000),
+    });
+    ok = true;
+    msg = "TLS 握手正常";
+  } catch (e) {
+    const raw = cleanMsg(e?.message || String(e));
+    ok = false;
+    msg = isTlsError(raw) ? `TLS 证书异常：${raw}` : `连接失败：${raw}`;
+  }
+  const ms = Date.now() - start;
+
+  // 2) 剩余天数（由调用方决定是否刷新；这里只负责查询）
+  const result = { ok, ms, msg };
+  return result;
+}
+
+export { fetchCertDays };
+
+// ---------- Push（心跳新鲜度判定，beat 时间戳由调用方读取） ----------
+
+export function checkPush(monitor, lastBeatAt, now = Date.now()) {
   const limitMs = Math.max((Number(monitor.intervalSec) || 60) * 3, 180) * 1000;
-  if (!beat || !beat.t) return { ok: false, ms: 0, msg: "从未收到心跳" };
-  const age = now - beat.t;
+  if (!lastBeatAt) return { ok: false, ms: 0, msg: "从未收到心跳" };
+  const age = now - lastBeatAt;
   if (age > limitMs) {
     return { ok: false, ms: 0, msg: `心跳超时（最后心跳 ${Math.round(age / 60000)} 分钟前）` };
   }
-  return { ok: true, ms: 0, msg: `心跳正常（${Math.round(age / 1000)} 秒前）`, beatAt: beat.t };
+  return { ok: true, ms: 0, msg: `心跳正常（${Math.round(age / 1000)} 秒前）`, beatAt: lastBeatAt };
 }
 
 // ---------- 分发 ----------

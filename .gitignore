@@ -1,4 +1,6 @@
 node_modules/
+.wrangler/
+.dev.vars
 .env
 .env.*
 !.env.example
@@ -9,7 +11,3 @@ output/
 dist/
 *.log
 .zcode/
-
-# scratch / local dumps
-scratch/
-*.local.json

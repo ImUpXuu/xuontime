@@ -6,6 +6,13 @@ function str(v) {
   return typeof v === "string" ? v.trim() : "";
 }
 
+function clampInt(v, min, max, def) {
+  const n = Math.floor(Number(v));
+  if (!Number.isFinite(n)) return def;
+  return Math.min(max, Math.max(min, n));
+}
+
+// 返回 { ok, errors, value }；value 只含白名单字段
 export function validateMonitor(input) {
   const errors = [];
   const out = {};
@@ -32,7 +39,6 @@ export function validateMonitor(input) {
     const method = (str(input.method) || "GET").toUpperCase();
     if (!METHODS.includes(method)) errors.push(`method 仅支持 ${METHODS.join("/")}`);
     out.method = method;
-    // headers：对象且值均为字符串
     const headers = {};
     if (input.headers && typeof input.headers === "object" && !Array.isArray(input.headers)) {
       for (const [k, v] of Object.entries(input.headers)) {
@@ -61,14 +67,4 @@ export function validateMonitor(input) {
   }
 
   return { ok: errors.length === 0, errors, value: out };
-}
-
-function clampInt(v, min, max, def) {
-  const n = Math.floor(Number(v));
-  if (!Number.isFinite(n)) return def;
-  return Math.min(max, Math.max(min, n));
-}
-
-export function describeMonitorForPush(monitor, origin) {
-  return `${origin}/api/push/${monitor.pushToken}`;
 }

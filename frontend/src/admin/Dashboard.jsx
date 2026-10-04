@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "./api.js";
+import { api, AuthError } from "./api.js";
 import { fmtAgo, fmtPct, STATE } from "../fmt.js";
 import MonitorDetail from "./MonitorDetail.jsx";
 import MonitorForm from "./MonitorForm.jsx";
@@ -87,14 +87,15 @@ export default function Dashboard({ siteTitle, dark, toggle, logout, onAuthError
           </div>
           <nav className="max-h-[38vh] flex-1 space-y-1 overflow-y-auto px-3 pb-3 lg:max-h-none">
             {loadErr && <p className="px-2 text-xs text-red-500">{loadErr}</p>}
-            {filtered.map((m) => {
+            {filtered.map((m, i) => {
               const st = STATE[m.state] || STATE.pending;
               const active = m.id === selectedId && view === "monitors";
               return (
                 <button key={m.id}
                   onClick={() => { setSelectedId(m.id); setView("monitors"); }}
-                  className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors
-                    ${active ? "bg-green-500/10 ring-1 ring-green-500/30" : "hover:bg-zinc-100 dark:hover:bg-zinc-800/70"}`}>
+                  className={`rise w-full rounded-xl px-3 py-2.5 text-left transition-colors
+                    ${active ? "bg-green-500/10 ring-1 ring-green-500/30" : "hover:bg-zinc-100 dark:hover:bg-zinc-800/70"}`}
+                  style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}>
                   <div className="flex items-center gap-2">
                     <span className={`h-2 w-2 flex-none rounded-full ${st.dot}`} />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{m.name}</span>
@@ -127,8 +128,8 @@ export default function Dashboard({ siteTitle, dark, toggle, logout, onAuthError
         </aside>
 
         {/* 主面板 */}
-        <main className="flex-1 overflow-y-auto bg-zinc-50 p-4 dark:bg-zinc-950/60 sm:p-6">
-          <div className="mx-auto max-w-3xl">
+        <main className="min-w-0 flex-1 overflow-y-auto bg-zinc-50 p-4 dark:bg-zinc-950/60 sm:p-6">
+          <div className="mx-auto max-w-6xl">
             {view === "monitors" && (
               <MonitorDetail
                 key={selectedId}
@@ -140,8 +141,8 @@ export default function Dashboard({ siteTitle, dark, toggle, logout, onAuthError
                 onDeleted={() => { setSelectedId(null); loadList(); }}
               />
             )}
-            {view === "settings" && <SettingsPanel guard={guard} />}
-            {view === "events" && <EventsPanel />}
+            {view === "settings" && <div key="settings" className="rise"><SettingsPanel guard={guard} /></div>}
+            {view === "events" && <div key="events" className="rise"><EventsPanel /></div>}
           </div>
         </main>
       </div>

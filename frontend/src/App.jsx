@@ -44,7 +44,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <div className="mx-auto max-w-3xl px-4 pb-16 pt-8">
+      <div className="mx-auto max-w-6xl px-4 pb-16 pt-8">
         {/* 顶栏 */}
         <header className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -98,14 +98,15 @@ export default function App() {
 
               {/* 监控卡片 */}
               <div className="space-y-5">
-                {monitors.map((m) => (
-                  <MonitorCard
-                    key={m.id}
-                    monitor={m}
-                    barDays={data.bars?.[m.id]}
-                    latency={data.today?.[m.id]}
-                    now={now}
-                  />
+                {monitors.map((m, i) => (
+                  <div key={m.id} className="rise" style={{ animationDelay: `${Math.min(i * 80, 400)}ms` }}>
+                    <MonitorCard
+                      monitor={m}
+                      barDays={data.bars?.[m.id]}
+                      latency={data.today?.[m.id]}
+                      now={now}
+                    />
+                  </div>
                 ))}
                 {!monitors.length && (
                   <div className="rounded-2xl border border-dashed border-zinc-300 p-10 text-center text-sm text-zinc-400 dark:border-zinc-700">
@@ -116,7 +117,9 @@ export default function App() {
 
               {/* 事件时间线 */}
               <h2 className="mb-3 mt-8 px-1 text-sm font-semibold text-zinc-400">事件时间线</h2>
-              <Timeline events={events} />
+              <div className="rise" style={{ animationDelay: "120ms" }}>
+                <Timeline events={events} />
+              </div>
             </>
           )
         )}

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, copyText } from "./api.js";
 import { fmtAgo, fmtClock, fmtMs, fmtPct, STATE, TYPE_LABEL } from "../fmt.js";
 import PingChart from "../components/PingChart.jsx";
+import HeartbeatBar from "../components/HeartbeatBar.jsx";
 import { FloatTip, useFloatTip } from "../hooks.jsx";
 
 // Kuma 式监控详情面板
@@ -94,7 +95,7 @@ export default function MonitorDetail({ monitorId, dark, now, guard, actions, on
   return (
     <div className="space-y-5 pb-10">
       {/* 标题 + 操作 */}
-      <div>
+      <div className="rise">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-bold tracking-tight">{m.name}</h1>
           <span className="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[11px] text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
@@ -132,7 +133,7 @@ export default function MonitorDetail({ monitorId, dark, now, guard, actions, on
       </div>
 
       {/* 心跳条 + 大状态 */}
-      <div className="rounded-2xl border border-zinc-200/70 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="rise rounded-2xl border border-zinc-200/70 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" style={{ animationDelay: "40ms" }}>
         <div className="flex items-center gap-4">
           <div className="min-w-0 flex-1">
             <BeatsStrip beats={detail.beats} tip={{ show, move, hide }} />
@@ -145,8 +146,14 @@ export default function MonitorDetail({ monitorId, dark, now, guard, actions, on
         </div>
       </div>
 
+      {/* 90 天心跳条 */}
+      <div className="rise rounded-2xl border border-zinc-200/70 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" style={{ animationDelay: "60ms" }}>
+        <h3 className="mb-3 text-xs text-zinc-400">在线率 · 近 90 天</h3>
+        <HeartbeatBar days={detail.bars} />
+      </div>
+
       {/* 统计行 */}
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="rise grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-7" style={{ animationDelay: "120ms" }}>
         {stats.map(([label, value]) => (
           <div key={label} className="rounded-xl border border-zinc-200/70 bg-white px-3 py-3 text-center dark:border-zinc-800 dark:bg-zinc-900">
             <div className="truncate text-[11px] text-zinc-400">{label}</div>
@@ -156,13 +163,13 @@ export default function MonitorDetail({ monitorId, dark, now, guard, actions, on
       </div>
 
       {/* 延迟图表 */}
-      <div className="rounded-2xl border border-zinc-200/70 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="rise rounded-2xl border border-zinc-200/70 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" style={{ animationDelay: "160ms" }}>
         <h3 className="mb-2 px-1 text-xs text-zinc-400">平均响应 · 近 24 小时</h3>
         <PingChart series={detail.series} dark={dark} />
       </div>
 
       {/* 此监控的事件 */}
-      <div className="rounded-2xl border border-zinc-200/70 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="rise rounded-2xl border border-zinc-200/70 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" style={{ animationDelay: "200ms" }}>
         <h3 className="mb-3 text-xs text-zinc-400">事件记录</h3>
         {events.length ? (
           <div className="space-y-2.5">

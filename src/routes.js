@@ -357,6 +357,7 @@ async function handleMonitorDetail(request, env, params) {
     avgMs24h,
     lastMs: beats.length ? beats[0].ms : null,
     beats,
+    bars: buildBars(monitor.id, now, rollByMonitor.get(monitor.id)),
     series,
   });
 }

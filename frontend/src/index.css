@@ -61,3 +61,11 @@ body {
 ::selection {
   background: rgb(34 197 94 / 0.25);
 }
+
+/* 尊重系统减弱动效设置 */
+@media (prefers-reduced-motion: reduce) {
+  .rise, .fade-in, .pulse-ring::after, .cell {
+    animation: none !important;
+    transition: none !important;
+  }
+}

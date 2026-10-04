@@ -46,6 +46,11 @@ export default function App() {
     };
   }, [slug]);
 
+  // 浏览器标签页标题：xuontime-页面标题
+  useEffect(() => {
+    if (data?.siteTitle) document.title = `xuontime-${data.siteTitle}`;
+  }, [data?.siteTitle]);
+
   const monitors = data?.monitors || [];
   const downCount = monitors.filter((m) => m.state === "down").length;
   // 「波动」= 最近 15 分钟内有失败（后端 recentFailAt），恢复 15 分钟后横幅回绿

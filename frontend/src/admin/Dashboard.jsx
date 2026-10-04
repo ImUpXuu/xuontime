@@ -53,7 +53,7 @@ export default function Dashboard({ siteTitle, dark, toggle, logout, onAuthError
   };
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-screen flex-col overflow-hidden">
       {/* 顶栏 */}
       <header className="flex h-14 flex-none items-center justify-between border-b border-zinc-200/70 px-4 dark:border-zinc-800">
         <div className="flex items-center gap-2.5">
@@ -74,7 +74,7 @@ export default function Dashboard({ siteTitle, dark, toggle, logout, onAuthError
         </div>
       </header>
 
-      <div className="flex flex-1 flex-col overflow-hidden lg:min-h-0 lg:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         {/* 侧栏 */}
         <aside className="flex w-full flex-none flex-col border-b border-zinc-200/70 lg:w-72 lg:border-b-0 lg:border-r dark:border-zinc-800">
           <div className="space-y-2 p-3">

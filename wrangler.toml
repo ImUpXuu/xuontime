@@ -14,4 +14,4 @@ database_id = "b306764b-9e13-4198-93e6-cc7caf409220"
 
 # 静态资源（公开状态页 / 管理后台）；未命中静态文件的请求（/api/*）进入 Worker
 [assets]
-directory = "./public"
+directory = "./frontend/dist"

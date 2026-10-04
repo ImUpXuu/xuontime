@@ -5,8 +5,10 @@
   "type": "module",
   "description": "Uptime-Kuma-style site monitor on Cloudflare Workers + D1",
   "scripts": {
-    "dev": "wrangler dev --test-scheduled",
-    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --test-scheduled --port 8788",
+    "fe:dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "deploy": "npm --prefix frontend run build && wrangler deploy",
     "db:init": "wrangler d1 execute xuontime --remote --file schema.sql -y",
     "smoke": "node scripts/smoke.mjs"
   },

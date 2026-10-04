@@ -11,14 +11,36 @@
 ```
 [Workers Cron 每分钟]──▶ scheduled() ──▶ runTick() ─┐
 [外部设备]──▶ POST /api/push/<token>（写 beats 表）  ├─▶ D1（SQLite）
-[访客]──▶ /（静态状态页）+ /api/status 等           │
+[访客]──▶ /（React 状态页）+ /api/status 等         │
 [管理员]──▶ /admin.html + /api/admin/*（密码登录）  ┘
-静态资源由 Workers Assets 直接服务；/api/* 进入 Worker。
+前端：frontend/（Vite + React 18 + Tailwind v4）→ 构建到 frontend/dist，
+由 Workers Assets 服务（与 API 同源，无 CORS 问题）；/api/* 进入 Worker。
 ```
 
 **单写者状态机**：`runTick` 是唯一改写 status 表的入口；push 只写 beats 表；
 "立即检测"抢锁同步执行，抢不到则把 `next_run_at` 置 0 排队。tick 只处理到期的监控——
 cron 频率快慢只影响粒度，不影响正确性。
+
+## ⚠️ 免费套餐 cron 调度器饥饿（2026-10-04 实证）
+
+账号 cron 触发器数量达到免费套餐上限（5 个/账号）后，经历过一次 quota 报错与
+释放重建（API PUT schedules），**账号内所有 cron 触发器会集体停止被调度**
+（GraphQL analytics 证实：4 个老 worker 的每分钟 cron 在某时刻后全部零调用，
+xuontime 的新触发器则从未被调度过；Worker 的 fetch 路径完全正常）。
+
+处置：停掉账号内其余全部 cron（仅保留 xuontime 一个）后恢复正常。
+当前已停掉的 cron（如需恢复，重新部署对应项目即可）：
+
+| Worker | 原 cron | 停止时间 |
+|---|---|---|
+| cui | `*/1 * * * *` | 2026-10-04（用户确认释放） |
+| test | `*/1 * * * *` | 2026-10-04 |
+| fuwari-comments | `* * * * *` | 2026-10-04 |
+| uptime-status | `* * * * *` | 2026-10-04 |
+| warden-worker | `0 3 * * *` | 2026-10-04 |
+
+经验：**免费账号尽量只保留 1-2 个 cron 触发器，避免顶格**；恢复其他项目 cron 后
+应立即用 GraphQL `workersInvocationsAdaptive` 按分钟验证调度是否仍被认领。
 
 ## 数据模型（D1，schema.sql）
 
@@ -78,12 +100,12 @@ Workers 无法直连 SMTP（无 nodemailer、MailChannels 免费通道已停）�
 ## 本地开发与部署
 
 ```bash
-npm install
-npm run smoke                                  # 纯逻辑测试（auth/validate/checkers）
-npm run dev                                    # wrangler dev --test-scheduled（本地 D1）
-curl "http://127.0.0.1:8787/__scheduled?cron=*+*+*+*+*"   # 手动触发 scheduled
+npm install && npm --prefix frontend install
+npm run smoke     # 纯逻辑测试（auth/validate/checkers）
+npm run dev       # wrangler dev --test-scheduled（本地 D1，端口 8788）
+npm run fe:dev    # 前端 vite dev（5173，/api 代理到 8788）
+npm run deploy    # vite build + wrangler deploy（部署前必跑，产物在 frontend/dist）
 wrangler d1 execute xuontime --remote --file schema.sql -y   # 首次建表
-npm run deploy                                 # 部署
 ```
 
 wrangler.toml 中已固定 `account_id`（love 账号）与 D1 `database_id`。

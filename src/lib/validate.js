@@ -30,6 +30,7 @@ export function validateMonitor(input) {
   out.retries = clampInt(input.retries, 0, 5, 2); // 失败后立即重试次数（0-5，受每轮子请求预算约束）
   out.notify = input.notify !== false;
   out.public = input.public !== false;
+  out.events = input.events !== false; // 可选：故障/恢复是否写入事件记录（友链等批量监控可关）
   out.paused = !!input.paused;
   out.group = str(input.group).slice(0, 50); // 可选：监控项分组（后台侧栏分区显示）
 

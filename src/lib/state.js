@@ -3,7 +3,10 @@ import { utcDateKey } from "./db.js";
 
 const CERT_WARN_INTERVAL_MS = 20 * 3600 * 1000;
 const FAST_RETRY_SEC = 60;
-const MAX_TICK_MONITORS = 15; // 免费 plan 每 invocation 50 个子请求：1 读 + N 检测 + N 批量写，留余量
+// 每轮 tick 最多检查的到期监控数：配合 CHECK_BUDGET_PER_TICK（fetch 预算 44），
+// 可持续消化 ~200 个 5 分钟间隔的监控（40/min > 200×(60/300)=40/min）。
+// D1 写入不计入子请求预算，真正的预算是 http fetch 次数。
+const MAX_TICK_MONITORS = 40;
 
 export async function writeEvent(env, monitor, type, msg, extra = {}) {
   const t = extra.t ?? Date.now();
@@ -38,6 +41,7 @@ export async function applyCheckResult(env, { monitor, status, result, now }) {
   const prev = status.state;
   const wasDown = prev === "down";
   let notifications = []; // 批量落库后再发，避免子请求浪费
+  const eventsOn = monitor.events !== false; // 事件开关：友链等批量监控可关闭，不写事件表
 
   if (result.ok) {
     next.consecutive_oks += 1;
@@ -47,7 +51,7 @@ export async function applyCheckResult(env, { monitor, status, result, now }) {
       next.since = now;
       const downtimeMs = wasDown && next.down_since ? now - next.down_since : 0;
       next.down_since = null;
-      await writeEvent(env, monitor, "up", result.msg, { downtimeMs, t: now });
+      if (eventsOn) await writeEvent(env, monitor, "up", result.msg, { downtimeMs, t: now });
       // pending → up 属首次上线，不发通知
       if (wasDown && monitor.notify) {
         notifications.push({ kind: "up", payload: { downtimeMs, msg: result.msg } });
@@ -62,7 +66,7 @@ export async function applyCheckResult(env, { monitor, status, result, now }) {
       next.state = "down";
       next.since = now;
       next.down_since = now;
-      await writeEvent(env, monitor, "down", result.msg, { t: now });
+      if (eventsOn) await writeEvent(env, monitor, "down", result.msg, { t: now });
       if (monitor.notify) {
         notifications.push({ kind: "down", payload: { msg: result.msg } });
       }
@@ -75,6 +79,7 @@ export async function applyCheckResult(env, { monitor, status, result, now }) {
 
   // 证书临期告警（独立于 up/down；由 tick 在刷新天数后触发）
   if (
+    eventsOn &&
     monitor.type === "cert" &&
     result.certWarn === true &&
     now - (status.lastCertWarnAt || 0) > CERT_WARN_INTERVAL_MS

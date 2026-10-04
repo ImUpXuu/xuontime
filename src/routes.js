@@ -47,6 +47,11 @@ const ROUTES = [
   ["POST", /^\/api\/admin\/keys$/, handleKeyCreate],
   ["DELETE", /^\/api\/admin\/keys\/(?<id>[^/]+)$/, handleKeyDelete],
   ["PUT", /^\/api\/admin\/keys\/access$/, handleKeysAccess],
+  ["GET", /^\/api\/admin\/sync$/, handleSyncList],
+  ["POST", /^\/api\/admin\/sync$/, handleSyncCreate],
+  ["PUT", /^\/api\/admin\/sync\/(?<id>[^/]+)$/, handleSyncUpdate],
+  ["DELETE", /^\/api\/admin\/sync\/(?<id>[^/]+)$/, handleSyncDelete],
+  ["POST", /^\/api\/admin\/sync\/(?<id>[^/]+)\/run$/, handleSyncRun],
   ["ANY", /^\/api\/v1\//, (req, env) => handleApiV1(req, env)],
   ["PUT", /^\/api\/admin\/password$/, handlePasswordPut],
 ];
@@ -645,6 +650,68 @@ async function handle2faDisable(request, env) {
   delete settings.totpPending;
   await saveSettings(env, settings);
   return json({ ok: true, totp: false });
+}
+
+import {
+  listSyncSources, getSyncSource, saveSyncSource, deleteSyncSource,
+  runSync, validateSyncConfig,
+} from "./lib/sync.js";
+
+// ---------- 管理端：同步源（外部 JSON → 监控自动同步） ----------
+
+async function handleSyncList(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  const sources = await listSyncSources(env);
+  const all = await listMonitors(env);
+  const counts = {};
+  for (const m of all) if (m.sync?.source) counts[m.sync.source] = (counts[m.sync.source] || 0) + 1;
+  return json({ sources, counts });
+}
+
+async function handleSyncCreate(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  const body = await request.json().catch(() => ({}));
+  const name = String(body?.name || "").trim();
+  if (!name || name.length > 50) return badRequest("名称必填且不超过 50 字");
+  const { ok, errors, value } = validateSyncConfig(body?.config);
+  if (!ok) return badRequest(errors.join("；"));
+  const source = { id: newId(), name, config: value, nextSyncAt: 0, createdAt: Date.now() };
+  await saveSyncSource(env, source); // nextSyncAt=0 → 下一轮 tick 立即首同步
+  return json({ ok: true, source }, 201);
+}
+
+async function handleSyncUpdate(request, env, params) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  const source = await getSyncSource(env, params.id);
+  if (!source) return notFound("同步源不存在");
+  const body = await request.json().catch(() => ({}));
+  const name = String(body?.name || "").trim();
+  if (!name || name.length > 50) return badRequest("名称必填且不超过 50 字");
+  const { ok, errors, value } = validateSyncConfig(body?.config);
+  if (!ok) return badRequest(errors.join("；"));
+  // 配置变更后立即重新同步（nextSyncAt=0），源数据波动不会被旧配置的间隙掩盖
+  await saveSyncSource(env, { ...source, name, config: value, nextSyncAt: 0 });
+  return json({ ok: true });
+}
+
+async function handleSyncDelete(request, env, params) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  const ok = await deleteSyncSource(env, params.id);
+  return ok ? json({ ok: true }) : notFound("同步源不存在");
+}
+
+async function handleSyncRun(request, env, params) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  const source = await getSyncSource(env, params.id);
+  if (!source) return notFound("同步源不存在");
+  const summary = await runSync(env, source);
+  if (summary.error) return json({ ok: false, error: summary.error }, 502);
+  return json({ ok: true, summary });
 }
 
 // 修改管理员密码：token 以密码哈希为签名密钥，改完所有旧会话自动失效，

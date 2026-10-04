@@ -5,10 +5,12 @@ import { ensureSettings, getMonitor, getStatus, initialStatusRow, insertStatus, 
 import { secretMatches } from "./lib/auth.js";
 import { acquireLock, releaseLock, applyCheckResult, pruneOld, MAX_TICK_MONITORS } from "./lib/state.js";
 import { runCheckWithRetry, checkPush, runPool, fetchCertDays } from "./lib/checkers.js";
+import { runDueSyncs } from "./lib/sync.js";
 
 const CERT_REFRESH_INTERVAL_MS = 20 * 3600 * 1000;
-// 免费 plan 每 invocation 50 个子请求：15 监控基础检测 + crt.sh 余量后，留给重试的预算
-const RETRY_BUDGET_PER_TICK = 30;
+// 免费 plan 每 invocation 50 个子请求：全部 http fetch（检测+重试+crt.sh）共享 44 的预算；
+// D1 写入不计入。预算耗尽时剩余监控保持到期状态，下一轮 tick 优先补测。
+const CHECK_BUDGET_PER_TICK = 44;
 
 export async function runTick(env) {
   const settings = await ensureSettings(env);
@@ -26,7 +28,7 @@ export async function runTick(env) {
 
     const monitors = (await Promise.all(dueIds.map((r) => getMonitor(env, r.id)))).filter(Boolean);
     const results = [];
-    const budget = { left: RETRY_BUDGET_PER_TICK };
+    const budget = { left: CHECK_BUDGET_PER_TICK };
 
     await runPool(monitors, 8, async (monitor) => {
       try {
@@ -49,7 +51,7 @@ export async function runTick(env) {
         } else {
           result = await runCheckWithRetry(monitor, budget);
           if (monitor.type === "cert") {
-            result = await enrichCert(env, monitor, status, result, now);
+            result = await enrichCert(env, monitor, status, result, now, budget);
           }
         }
 
@@ -69,7 +71,11 @@ export async function runTick(env) {
       pruned = 1;
     }
 
-    return { ok: true, at: now, checked: results.length, results, pruned };
+    // 到期的外部同步源（每轮最多 2 个）
+    let synced = 0;
+    try { synced = await runDueSyncs(env); } catch { /* 同步失败不影响检测 */ }
+
+    return { ok: true, at: now, checked: results.length, results, pruned, synced };
   } finally {
     await releaseLock(env, owner);
   }
@@ -77,13 +83,15 @@ export async function runTick(env) {
 
 // 证书剩余天数刷新：TLS 有效前提下，距上次刷新 >20h 时查一次 crt.sh，
 // 临期（<= certAlertDays）或无缓存时触发告警标记。
-async function enrichCert(env, monitor, status, result, now) {
+async function enrichCert(env, monitor, status, result, now, budget) {
   if (!result.ok) return result;
   const alertDays = Number(monitor.certAlertDays) || 30;
   const stale = now - (status.certRefreshAt || 0) > CERT_REFRESH_INTERVAL_MS;
   const expiresAt = status.certExpiresAt || 0;
   const needRefresh = stale && (!expiresAt || expiresAt - now <= alertDays * 86400000 + CERT_REFRESH_INTERVAL_MS);
   if (!needRefresh) return result;
+  if (!budget || budget.left <= 0) return result; // crt.sh 查询也要吃 fetch 预算
+  budget.left -= 1;
 
   try {
     const newExpiresAt = await fetchCertDays(monitor.host);

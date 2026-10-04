@@ -190,9 +190,14 @@ export async function runCheck(monitor) {
 
 // 带立即重试的检查：失败后立刻再试至多 monitor.retries 次；
 // 某次重试成功 → ok 且 degraded=true（UI 标黄，不计故障）。
-// budget = { left: n } 为整轮 tick 共享的子请求余量，防止超过免费套餐 50 个上限。
+// budget = { left: n } 为整轮 tick 共享的 fetch 预算，每次尝试（含首次）都计 1，
+// 耗尽后跳过（监控保持到期状态，下一轮 tick 优先检测），防止超免费套餐子请求上限。
 export async function runCheckWithRetry(monitor, budget = { left: 0 }) {
   const maxRetries = Math.min(Math.max(Math.floor(Number(monitor.retries)) || 0, 0), 5);
+  if (budget.left <= 0) {
+    return { ok: false, ms: 0, msg: "本轮检测预算已用尽，稍后自动补测", budgetExhausted: true };
+  }
+  budget.left -= 1;
   let result = await runCheck(monitor);
   for (let i = 1; !result.ok && i <= maxRetries && budget.left > 0; i++) {
     budget.left -= 1;

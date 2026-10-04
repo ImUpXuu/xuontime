@@ -125,6 +125,7 @@ export default function MonitorForm({ editing, monitors, onClose, onSaved, guard
               </div>
               <div className="flex gap-5 pt-1">
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="notify" defaultChecked={existing?.notify !== false} />故障/恢复时发通知</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="events" defaultChecked={existing?.events !== false} />计入事件记录</label>
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="public" defaultChecked={existing?.public !== false} />在公开状态页显示</label>
               </div>
               {err && <p className="text-xs text-red-500">{err}</p>}
@@ -164,6 +165,7 @@ function collect(form, type) {
     retries: Number(fd.get("retries")),
     notify: fd.get("notify") === "on",
     public: fd.get("public") === "on",
+    events: fd.get("events") === "on",
   };
   if (type === "http") {
     body.url = fd.get("url");

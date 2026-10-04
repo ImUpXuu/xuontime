@@ -73,6 +73,17 @@ CREATE TABLE IF NOT EXISTS api_keys (
   last_used_at INTEGER NOT NULL DEFAULT 0
 );
 
+-- 同步源：外部 JSON → 监控项自动同步（DSL 配置存 config，状态页可自动重建）
+CREATE TABLE IF NOT EXISTS sync_sources (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  config        TEXT NOT NULL,             -- JSON：{type,url,itemsPath,keyField,fieldMap,defaults,prune,intervalMin,statusPage}
+  last_sync_at  INTEGER NOT NULL DEFAULT 0,
+  last_status   TEXT NOT NULL DEFAULT '',  -- 最近一次同步结果摘要/错误
+  next_sync_at  INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL
+);
+
 -- 按天汇总（90 天状态条 / 长周期在线率），量小可长期保留
 CREATE TABLE IF NOT EXISTS rollup_days (
   monitor_id TEXT NOT NULL,

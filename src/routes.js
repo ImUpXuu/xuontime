@@ -3,7 +3,7 @@ import { json, badRequest, unauthorized, notFound } from "./lib/http.js";
 import {
   ensureSettings, saveSettings, listMonitors, getMonitor, getMonitorByPushToken,
   getStatus, initialStatusRow, insertStatus, saveMonitor, newId, newPushToken,
-  utcDateKey,
+  utcDateKey, listStatusPages, getStatusPage, getStatusPageBySlug, saveStatusPage, deleteStatusPage,
 } from "./lib/db.js";
 import { hashPassword, verifyPassword, signToken, requireAdmin, secretMatches } from "./lib/auth.js";
 import { applyCheckResult, acquireLock, releaseLock } from "./lib/state.js";
@@ -11,11 +11,17 @@ import { runCheckWithRetry, checkPush } from "./lib/checkers.js";
 import { handleTickRequest } from "./tick.js";
 import { sendTestNotification, notifyConfigured } from "./lib/notify.js";
 import { verifyCapToken } from "./lib/captcha.js";
+import { loadUptimeMaps, computeUptime, buildBars, downsampleRows } from "./lib/metrics.js";
+import { handleApiV1 } from "./api_v1.js";
+import {
+  listApiKeys, createApiKey, deleteApiKey, saveApiAccess, ACCESS_GROUPS,
+} from "./lib/apikeys.js";
 
 const ROUTES = [
   ["POST", /^\/api\/tick$/, (req, env) => handleTickRequest(req, env)],
   ["ANY", /^\/api\/push\/(?<token>[a-f0-9]{16})$/, handlePush],
   ["GET", /^\/api\/status$/, handleStatus],
+  ["GET", /^\/api\/status\/(?<slug>[a-z0-9-]+)$/, handleStatusSlug],
   ["GET", /^\/api\/incidents$/, handleIncidents],
   ["GET", /^\/api\/setup$/, handleSetupGet],
   ["POST", /^\/api\/setup$/, handleSetupPost],
@@ -29,6 +35,15 @@ const ROUTES = [
   ["GET", /^\/api\/admin\/settings$/, handleSettingsGet],
   ["PUT", /^\/api\/admin\/settings$/, handleSettingsPut],
   ["POST", /^\/api\/admin\/notify-test$/, handleNotifyTest],
+  ["GET", /^\/api\/admin\/pages$/, handlePagesList],
+  ["POST", /^\/api\/admin\/pages$/, handlePageCreate],
+  ["PUT", /^\/api\/admin\/pages\/(?<id>[^/]+)$/, handlePageUpdate],
+  ["DELETE", /^\/api\/admin\/pages\/(?<id>[^/]+)$/, handlePageDelete],
+  ["GET", /^\/api\/admin\/keys$/, handleKeysList],
+  ["POST", /^\/api\/admin\/keys$/, handleKeyCreate],
+  ["DELETE", /^\/api\/admin\/keys\/(?<id>[^/]+)$/, handleKeyDelete],
+  ["PUT", /^\/api\/admin\/keys\/access$/, handleKeysAccess],
+  ["ANY", /^\/api\/v1\//, (req, env) => handleApiV1(req, env)],
   ["PUT", /^\/api\/admin\/password$/, handlePasswordPut],
 ];
 
@@ -75,24 +90,30 @@ async function handlePush(request, env, params) {
 
 // ---------- 公开状态 ----------
 
-// 拉取在线率计算所需的 rollup（90d）与 24h 聚合
-async function loadUptimeMaps(env, now) {
-  const { results: rollups } = await env.DB.prepare(
-    "SELECT monitor_id, day, ok, total, fails, sum_ms, min_ms, max_ms FROM rollup_days WHERE day >= ?",
-  ).bind(utcDateKey(now - 90 * 86400000)).all();
-  const rollByMonitor = new Map();
-  for (const r of rollups) {
-    if (!rollByMonitor.has(r.monitor_id)) rollByMonitor.set(r.monitor_id, new Map());
-    rollByMonitor.get(r.monitor_id).set(r.day, r);
-  }
-  const { results: agg24 } = await env.DB.prepare(
-    `SELECT monitor_id, COUNT(*) AS total, SUM(ok) AS ok, AVG(CASE WHEN ok = 1 THEN ms END) AS avg_ms
-     FROM checks WHERE t >= ? GROUP BY monitor_id`,
-  ).bind(now - 86400000).all();
-  return { rollByMonitor, aggByMonitor: new Map(agg24.map((r) => [r.monitor_id, r])) };
+async function handleStatus(request, env) {
+  const settings = await ensureSettings(env);
+  const page = await ensureRootPage(env, settings);
+  return json(await buildStatusPayload(env, page));
 }
 
-async function handleStatus(request, env) {
+async function handleStatusSlug(request, env, params) {
+  const page = await getStatusPageBySlug(env, params.slug);
+  if (!page) return notFound("状态页不存在");
+  return json(await buildStatusPayload(env, page));
+}
+
+// 根状态页（slug=""）懒创建，标题沿用设置里的站点标题
+async function ensureRootPage(env, settings) {
+  let page = await getStatusPageBySlug(env, "");
+  if (!page) {
+    page = { id: newId(), slug: "", title: settings.siteTitle || "状态页", groups: [], createdAt: Date.now() };
+    await saveStatusPage(env, page);
+  }
+  return page;
+}
+
+// 组装公开状态数据：monitors/bars/today 全量，sections 按页面分组（仅展示层）
+async function buildStatusPayload(env, page) {
   const settings = await ensureSettings(env);
   const now = Date.now();
 
@@ -145,58 +166,30 @@ async function handleStatus(request, env) {
     today[m.id] = sparkByMonitor.get(m.id) || [];
   }
 
-  return json({
-    siteTitle: settings.siteTitle,
+  // 分组只影响展示：未分配的公开监控进「默认分组」；组内引用不存在的 id 直接忽略
+  const byId = new Map(list.map((m) => [m.id, m]));
+  const assigned = new Set();
+  const sections = [];
+  for (const g of page.groups || []) {
+    const ids = (g.monitorIds || []).filter((id) => byId.has(id) && !assigned.has(id));
+    ids.forEach((id) => assigned.add(id));
+    if (ids.length) sections.push({ name: g.name, monitorIds: ids });
+  }
+  const rest = list.map((m) => m.id).filter((id) => !assigned.has(id));
+  if (rest.length || !sections.length) sections.push({ name: "默认分组", monitorIds: rest });
+
+  return {
+    siteTitle: page.title || settings.siteTitle,
     now,
     setupRequired: !settings.adminPasswordHash,
+    page: { slug: page.slug, title: page.title, sections },
     monitors: list,
     bars,
     today,
-  });
+  };
 }
 
-function computeUptime(monitorId, now, rollMap, agg24) {
-  const h24 = agg24 && agg24.total > 0 ? (agg24.ok / agg24.total) * 100 : null;
-  const windows = { d7: 7, d30: 30, d90: 90 };
-  const out = { h24 };
-  for (const [name, days] of Object.entries(windows)) {
-    if (!rollMap) { out[name] = null; continue; }
-    const cutoffDay = utcDateKey(now - days * 86400000);
-    let ok = 0;
-    let total = 0;
-    for (const [day, r] of rollMap) {
-      if (day < cutoffDay) continue;
-      ok += r.ok;
-      total += r.total;
-    }
-    out[name] = total > 0 ? (ok / total) * 100 : null;
-  }
-  return out;
-}
 
-function buildBars(monitorId, now, rollMap) {
-  const days = [];
-  for (let i = 89; i >= 0; i--) {
-    const date = utcDateKey(now - i * 86400000);
-    const d = rollMap?.get(date);
-    if (!d || !d.total) {
-      days.push({ date, state: "none" });
-    } else {
-      const ratio = d.ok / d.total;
-      const state = d.fails === 0 ? "up" : ratio >= 0.9 ? "part" : "down";
-      days.push({
-        date,
-        state,
-        ok: d.ok,
-        total: d.total,
-        avgMs: d.ok ? Math.round(d.sum_ms / d.ok) : null,
-        minMs: d.min_ms > 0 ? d.min_ms : null,
-        maxMs: d.max_ms > 0 ? d.max_ms : null,
-      });
-    }
-  }
-  return days;
-}
 
 async function handleIncidents(request, env) {
   const url = new URL(request.url);
@@ -378,23 +371,6 @@ async function handleMonitorDetail(request, env, params) {
   });
 }
 
-function downsampleRows(rows, maxPoints) {
-  if (rows.length <= maxPoints) return rows.map((r) => [r.t, r.ok ? 1 : 0, r.ms || 0]);
-  const k = rows.length / maxPoints;
-  const out = [];
-  for (let i = 0; i < maxPoints; i++) {
-    const slice = rows.slice(Math.floor(i * k), Math.floor((i + 1) * k) + 1);
-    if (!slice.length) continue;
-    const last = slice[slice.length - 1];
-    const anyFail = slice.some((r) => !r.ok);
-    const okRows = slice.filter((r) => r.ok);
-    const ms = okRows.length
-      ? Math.round(okRows.reduce((s, r) => s + (r.ms || 0), 0) / okRows.length)
-      : 0;
-    out.push([last.t, anyFail ? 0 : 1, ms]);
-  }
-  return out;
-}
 
 // 立即检测：抢到锁就同步执行；抢不到把 next_run_at 置 0 排队给下一轮 tick
 async function handleMonitorCheck(request, env, params) {  const settings = await ensureSettings(env);
@@ -506,6 +482,111 @@ async function handleNotifyTest(request, env) {
   }
   const result = await sendTestNotification(env);
   return json(result, result.ok ? 200 : 502);
+}
+
+// ---------- 管理端：状态页（多页 + 显示分组） ----------
+
+function validatePage(input, { isRoot = false } = {}) {
+  const errors = [];
+  const slug = isRoot ? "" : String(input.slug || "").trim();
+  if (!isRoot && !/^[a-z0-9-]{1,64}$/.test(slug)) {
+    errors.push("URL 仅支持小写字母、数字和连字符（1-64 位）");
+  }
+  const title = String(input.title || "").trim();
+  if (!title || title.length > 100) errors.push("标题必填且不超过 100 字");
+  const raw = Array.isArray(input.groups) ? input.groups : [];
+  if (raw.length > 20) errors.push("分组数量不能超过 20");
+  const groups = raw
+    .map((g) => ({
+      name: String(g?.name || "").trim().slice(0, 50),
+      monitorIds: [...new Set((Array.isArray(g?.monitorIds) ? g.monitorIds : []).map(String).filter(Boolean))].slice(0, 100),
+    }))
+    .filter((g) => g.name);
+  return { ok: errors.length === 0, errors, value: { slug, title, groups } };
+}
+
+async function handlePagesList(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  await ensureRootPage(env, settings);
+  return json({ pages: await listStatusPages(env) });
+}
+
+async function handlePageCreate(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+
+  const body = await request.json().catch(() => ({}));
+  const { ok, errors, value } = validatePage(body);
+  if (!ok) return badRequest(errors.join("；"));
+  if (await getStatusPageBySlug(env, value.slug)) return badRequest("该 URL 已被其他状态页使用");
+
+  const page = { id: newId(), ...value, createdAt: Date.now() };
+  await saveStatusPage(env, page);
+  return json({ ok: true, page }, 201);
+}
+
+async function handlePageUpdate(request, env, params) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+
+  const page = await getStatusPage(env, params.id);
+  if (!page) return notFound("状态页不存在");
+  const isRoot = page.slug === "";
+  const body = await request.json().catch(() => ({}));
+  const { ok, errors, value } = validatePage(body, { isRoot });
+  if (!ok) return badRequest(errors.join("；"));
+  if (!isRoot) {
+    const dup = await getStatusPageBySlug(env, value.slug);
+    if (dup && dup.id !== page.id) return badRequest("该 URL 已被其他状态页使用");
+  }
+  const updated = { ...page, slug: isRoot ? "" : value.slug, title: value.title, groups: value.groups };
+  await saveStatusPage(env, updated);
+  return json({ ok: true, page: updated });
+}
+
+async function handlePageDelete(request, env, params) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+
+  const page = await getStatusPage(env, params.id);
+  if (!page) return notFound("状态页不存在");
+  if (page.slug === "") return badRequest("根状态页不可删除");
+  await deleteStatusPage(env, page.id);
+  return json({ ok: true });
+}
+
+// ---------- 管理端：API Key 与端点访问开关 ----------
+
+async function handleKeysList(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  return json({ keys: await listApiKeys(env), access: settings.apiAccess || {}, groups: ACCESS_GROUPS });
+}
+
+async function handleKeyCreate(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  const body = await request.json().catch(() => ({}));
+  const name = String(body?.name || "").trim();
+  if (!name || name.length > 50) return badRequest("名称必填且不超过 50 字");
+  const key = await createApiKey(env, { name, write: body?.write === true });
+  return json({ ok: true, key: { id: key.id, name: key.name, scopes: key.scopes }, token: key.token }, 201);
+}
+
+async function handleKeyDelete(request, env, params) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  const ok = await deleteApiKey(env, params.id);
+  return ok ? json({ ok: true }) : notFound("Key 不存在");
+}
+
+async function handleKeysAccess(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  const body = await request.json().catch(() => ({}));
+  const access = await saveApiAccess(env, settings, body || {});
+  return json({ ok: true, access });
 }
 
 // 修改管理员密码：token 以密码哈希为签名密钥，改完所有旧会话自动失效，

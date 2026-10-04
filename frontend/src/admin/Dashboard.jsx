@@ -4,13 +4,15 @@ import { fmtAgo, fmtPct, STATE } from "../fmt.js";
 import MonitorDetail from "./MonitorDetail.jsx";
 import MonitorForm from "./MonitorForm.jsx";
 import { SettingsPanel, EventsPanel } from "./SettingsPanel.jsx";
+import PagesPanel from "./PagesPanel.jsx";
+import ApiPanel from "./ApiPanel.jsx";
 import { useNow } from "../hooks.jsx";
 
 // Kuma 式仪表盘：左侧监控列表 + 右侧详情面板
 export default function Dashboard({ siteTitle, dark, toggle, logout, onAuthError }) {
   const [monitors, setMonitors] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
-  const [view, setView] = useState("monitors"); // monitors | settings | events
+  const [view, setView] = useState("monitors"); // monitors | settings | events | pages | api
   const [formState, setFormState] = useState(null); // null | "new" | monitorId
   const [search, setSearch] = useState("");
   const [loadErr, setLoadErr] = useState("");
@@ -114,6 +116,16 @@ export default function Dashboard({ siteTitle, dark, toggle, logout, onAuthError
             )}
           </nav>
           <div className="border-t border-zinc-200/70 p-3 dark:border-zinc-800">
+            <button onClick={() => setView(view === "api" ? "monitors" : "api")}
+              className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors
+                ${view === "api" ? "bg-green-500/10 text-green-600 dark:text-green-400" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}>
+              🔑 API
+            </button>
+            <button onClick={() => setView(view === "pages" ? "monitors" : "pages")}
+              className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors
+                ${view === "pages" ? "bg-green-500/10 text-green-600 dark:text-green-400" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}>
+              📄 状态页设置
+            </button>
             <button onClick={() => setView(view === "settings" ? "monitors" : "settings")}
               className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors
                 ${view === "settings" ? "bg-green-500/10 text-green-600 dark:text-green-400" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}>
@@ -141,6 +153,8 @@ export default function Dashboard({ siteTitle, dark, toggle, logout, onAuthError
                 onDeleted={() => { setSelectedId(null); loadList(); }}
               />
             )}
+            {view === "pages" && <div key="pages" className="rise"><PagesPanel guard={guard} /></div>}
+            {view === "api" && <div key="api" className="rise"><ApiPanel guard={guard} /></div>}
             {view === "settings" && <div key="settings" className="rise"><SettingsPanel guard={guard} /></div>}
             {view === "events" && <div key="events" className="rise"><EventsPanel /></div>}
           </div>

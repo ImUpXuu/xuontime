@@ -73,6 +73,46 @@ function safeParse(s) {
   try { return JSON.parse(s) || {}; } catch { return {}; }
 }
 
+// ---------- status pages（多状态页） ----------
+
+function pageFromRow(r) {
+  return {
+    id: r.id,
+    slug: r.slug,
+    title: r.title,
+    groups: safeParse(r.groups) || [],
+    createdAt: r.created_at,
+  };
+}
+
+export async function listStatusPages(env) {
+  const { results } = await env.DB.prepare("SELECT * FROM status_pages ORDER BY created_at ASC").all();
+  return results.map(pageFromRow);
+}
+
+export async function getStatusPage(env, id) {
+  const r = await env.DB.prepare("SELECT * FROM status_pages WHERE id = ?").bind(id).first();
+  return r ? pageFromRow(r) : null;
+}
+
+export async function getStatusPageBySlug(env, slug) {
+  const r = await env.DB.prepare("SELECT * FROM status_pages WHERE slug = ?").bind(slug).first();
+  return r ? pageFromRow(r) : null;
+}
+
+export async function saveStatusPage(env, page) {
+  await env.DB.prepare(
+    `INSERT INTO status_pages (id, slug, title, groups, created_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET slug = excluded.slug, title = excluded.title, groups = excluded.groups`,
+  )
+    .bind(page.id, page.slug, page.title, JSON.stringify(page.groups), page.createdAt)
+    .run();
+}
+
+export async function deleteStatusPage(env, id) {
+  await env.DB.prepare("DELETE FROM status_pages WHERE id = ?").bind(id).run();
+}
+
 // ---------- monitors / status ----------
 
 export async function listMonitors(env) {

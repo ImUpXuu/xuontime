@@ -1,8 +1,12 @@
 const JSON_HEADERS = { "content-type": "application/json" };
 
-export async function fetchStatus() {
-  const r = await fetch("/api/status", { headers: JSON_HEADERS });
-  if (!r.ok) throw new Error(`status ${r.status}`);
+export async function fetchStatus(slug = "") {
+  const r = await fetch(slug ? `/api/status/${slug}` : "/api/status", { headers: JSON_HEADERS });
+  if (!r.ok) {
+    let msg = `status ${r.status}`;
+    try { msg = (await r.json())?.error || msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
   return r.json();
 }
 

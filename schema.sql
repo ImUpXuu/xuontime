@@ -54,6 +54,25 @@ CREATE TABLE IF NOT EXISTS checks (
   PRIMARY KEY (monitor_id, t)
 );
 
+-- 状态页（多页）：slug="" 为根页面（/），其余访问 /status/<slug>；groups 为显示分组
+CREATE TABLE IF NOT EXISTS status_pages (
+  id         TEXT PRIMARY KEY,
+  slug       TEXT NOT NULL UNIQUE,       -- 根页面固定为空串
+  title      TEXT NOT NULL,
+  groups     TEXT NOT NULL DEFAULT '[]', -- JSON: [{name, monitorIds: []}]（仅影响展示）
+  created_at INTEGER NOT NULL
+);
+
+-- API Key（开放 API）：key 只存 SHA-256 哈希，明文仅创建时返回一次
+CREATE TABLE IF NOT EXISTS api_keys (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  key_hash     TEXT NOT NULL UNIQUE,
+  scopes       TEXT NOT NULL DEFAULT '["read"]', -- JSON: ["read"] 或 ["read","write"]
+  created_at   INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL DEFAULT 0
+);
+
 -- 按天汇总（90 天状态条 / 长周期在线率），量小可长期保留
 CREATE TABLE IF NOT EXISTS rollup_days (
   monitor_id TEXT NOT NULL,

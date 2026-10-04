@@ -5,7 +5,14 @@ import MonitorCard from "./components/MonitorCard.jsx";
 import Timeline from "./components/Timeline.jsx";
 import { fmtPct, fmtAgo } from "./fmt.js";
 
+// 多状态页：/ 为根页面，/status/<slug> 为其他状态页（同一 React 应用）
+function pageSlug() {
+  const m = location.pathname.match(/^\/status\/([a-z0-9-]+)\/?$/);
+  return m ? m[1] : "";
+}
+
 export default function App() {
+  const slug = pageSlug();
   const [data, setData] = useState(null);
   const [events, setEvents] = useState([]);
   const [error, setError] = useState("");
@@ -16,7 +23,7 @@ export default function App() {
   const load = async (silent = false) => {
     if (!silent) setRefreshing(true);
     try {
-      const [s, i] = await Promise.all([fetchStatus(), fetchIncidents()]);
+      const [s, i] = await Promise.all([fetchStatus(slug), fetchIncidents()]);
       setData(s);
       setEvents(i.events || []);
       setError("");
@@ -37,7 +44,7 @@ export default function App() {
       clearInterval(t);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, []);
+  }, [slug]);
 
   const monitors = data?.monitors || [];
   const downCount = monitors.filter((m) => m.state === "down").length;
@@ -105,24 +112,51 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 监控卡片：单列紧凑排布 */}
-              <div className="flex flex-col gap-3">
-                {monitors.map((m, i) => (
-                  <div key={m.id} className="rise" style={{ animationDelay: `${Math.min(i * 60, 400)}ms` }}>
-                    <MonitorCard
-                      monitor={m}
-                      barDays={data.bars?.[m.id]}
-                      latency={data.today?.[m.id]}
-                      now={now}
-                    />
-                  </div>
-                ))}
-                {!monitors.length && (
-                  <div className="neo-card neo-zinc neo-flat p-10 text-center text-sm text-zinc-400">
-                    还没有监控项，<a className="text-green-600 hover:underline dark:text-green-400" href="/admin.html">去添加 →</a>
-                  </div>
-                )}
-              </div>
+              {/* 监控卡片：按状态页分组展示（仅展示层） */}
+              {(() => {
+                if (!monitors.length) {
+                  return (
+                    <div className="neo-card neo-zinc neo-flat p-10 text-center text-sm text-zinc-400">
+                      还没有监控项，<a className="text-green-600 hover:underline dark:text-green-400" href="/admin.html">去添加 →</a>
+                    </div>
+                  );
+                }
+                const byId = new Map(monitors.map((m) => [m.id, m]));
+                const sections = data.page?.sections?.length
+                  ? data.page.sections
+                  : [{ name: "默认分组", monitorIds: monitors.map((m) => m.id) }];
+                let seq = 0;
+                return sections.map((sec) => (
+                  <section key={sec.name} className="mb-6 last:mb-0">
+                    <div className="mb-2.5 flex items-center gap-2 px-1">
+                      <h2 className="text-sm font-bold">{sec.name}</h2>
+                      <span className="rounded border border-zinc-300 bg-white px-1.5 text-[11px] tabular-nums text-zinc-400 shadow-[1px_1px_0_0_currentColor] dark:border-zinc-600 dark:bg-zinc-800/80">
+                        {sec.monitorIds.length}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      {sec.monitorIds.map((id) => {
+                        const m = byId.get(id);
+                        if (!m) return null;
+                        const delay = Math.min((seq++) * 60, 400);
+                        return (
+                          <div key={id} className="rise" style={{ animationDelay: `${delay}ms` }}>
+                            <MonitorCard
+                              monitor={m}
+                              barDays={data.bars?.[id]}
+                              latency={data.today?.[id]}
+                              now={now}
+                            />
+                          </div>
+                        );
+                      })}
+                      {!sec.monitorIds.length && (
+                        <p className="px-1 py-3 text-xs text-zinc-400">该分组暂无监控项</p>
+                      )}
+                    </div>
+                  </section>
+                ));
+              })()}
 
               {/* 事件时间线 */}
               <h2 className="mb-3 mt-6">

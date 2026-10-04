@@ -1,0 +1,7 @@
+# HTML 外壳永不缓存：重部署后旧外壳引用的 hash 资源会被删，缓存旧外壳会白屏
+/index.html
+  Cache-Control: no-cache, must-revalidate
+/admin.html
+  Cache-Control: no-cache, must-revalidate
+/admin
+  Cache-Control: no-cache, must-revalidate

@@ -104,12 +104,20 @@ export async function applyCheckResult(env, { monitor, status, result, now }) {
       result.ok ? (result.degraded ? String(result.msg || "").slice(0, 200) : null) : String(result.msg || "").slice(0, 200),
     ),
     env.DB.prepare(
-      `INSERT INTO rollup_days (monitor_id, day, ok, total, fails, sum_ms)
-       VALUES (?, ?, ?, 1, ?, ?)
+      `INSERT INTO rollup_days (monitor_id, day, ok, total, fails, sum_ms, max_ms, min_ms)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?)
        ON CONFLICT(monitor_id, day) DO UPDATE SET
-         ok = ok + excluded.ok, total = total + 1, fails = fails + excluded.fails, sum_ms = sum_ms + excluded.sum_ms`,
+         ok = ok + excluded.ok, total = total + 1, fails = fails + excluded.fails, sum_ms = sum_ms + excluded.sum_ms,
+         max_ms = MAX(max_ms, excluded.max_ms),
+         min_ms = CASE WHEN min_ms <= 0 THEN excluded.min_ms
+                       WHEN excluded.min_ms <= 0 THEN min_ms
+                       ELSE MIN(min_ms, excluded.min_ms) END`,
     ).bind(
-      monitor.id, utcDateKey(now), result.ok ? 1 : 0, result.ok ? 0 : 1, result.ok ? (result.ms || 0) : 0,
+      // 最快/最慢只统计成功检查（失败检查的 ms 无意义）；失败时传 0 表示不参与
+      monitor.id, utcDateKey(now), result.ok ? 1 : 0, result.ok ? 0 : 1,
+      result.ok ? (result.ms || 0) : 0,
+      result.ok ? (result.ms || 0) : 0,
+      result.ok ? (result.ms || 0) : 0,
     ),
   ];
   await env.DB.batch(stmts);

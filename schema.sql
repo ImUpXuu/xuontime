@@ -61,7 +61,9 @@ CREATE TABLE IF NOT EXISTS rollup_days (
   ok         INTEGER NOT NULL DEFAULT 0,
   total      INTEGER NOT NULL DEFAULT 0,
   fails      INTEGER NOT NULL DEFAULT 0,
-  sum_ms     INTEGER NOT NULL DEFAULT 0,
+  sum_ms     INTEGER NOT NULL DEFAULT 0, -- 仅成功检查的耗时和（算均值）
+  max_ms     INTEGER NOT NULL DEFAULT 0, -- 当日最快/最慢（仅成功检查，0=无数据）
+  min_ms     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (monitor_id, day)
 );
 

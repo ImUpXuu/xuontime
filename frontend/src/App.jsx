@@ -3,7 +3,7 @@ import { fetchStatus, fetchIncidents } from "./api.js";
 import { useNow, useTheme, FloatTip } from "./hooks.jsx";
 import MonitorCard from "./components/MonitorCard.jsx";
 import Timeline from "./components/Timeline.jsx";
-import { fmtPct } from "./fmt.js";
+import { fmtPct, fmtAgo } from "./fmt.js";
 
 export default function App() {
   const [data, setData] = useState(null);
@@ -29,8 +29,14 @@ export default function App() {
 
   useEffect(() => {
     load();
-    const t = setInterval(() => load(true), 30000);
-    return () => clearInterval(t);
+    const t = setInterval(() => load(true), 15000);
+    // 回到本标签页时立即刷新，保证看到的是最新数据
+    const onVis = () => { if (document.visibilityState === "visible") load(true); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, []);
 
   const monitors = data?.monitors || [];
@@ -46,7 +52,7 @@ export default function App() {
   })();
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-[#faf7f0] neo-dots dark:bg-zinc-950">
       <div className="mx-auto max-w-6xl px-4 pb-16 pt-8">
         {/* 顶栏 */}
         <header className="mb-6 flex items-center justify-between">
@@ -59,7 +65,7 @@ export default function App() {
             <button onClick={toggle} title="切换主题"
               className="rounded-lg px-2 py-1.5 text-base transition-colors hover:bg-zinc-200/60 dark:hover:bg-zinc-800">🌓</button>
             <a href="/admin.html"
-              className="rounded-lg border border-zinc-200/80 px-3 py-1.5 text-xs text-zinc-500 transition-colors hover:border-green-500/40 hover:text-green-600 dark:border-zinc-700 dark:text-zinc-400 dark:hover:text-green-400">
+              className="rounded-md border-2 border-sky-600 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 shadow-[2px_2px_0_0_#0284c7] transition-all hover:-translate-y-0.5 hover:shadow-[3px_3px_0_0_#f59e0b] dark:bg-zinc-900 dark:text-sky-400">
               管理
             </a>
           </div>
@@ -77,16 +83,13 @@ export default function App() {
         ) : (
           data && (
             <>
-              <div className={`rise mb-6 flex items-center gap-4 rounded-2xl border p-6
-                ${overall === "ok"
-                  ? "border-green-500/20 bg-gradient-to-r from-green-500/10 to-transparent"
-                  : overall === "bad"
-                    ? "border-red-500/25 bg-gradient-to-r from-red-500/10 to-transparent"
-                    : overall === "warn"
-                      ? "border-amber-500/25 bg-gradient-to-r from-amber-500/10 to-transparent"
-                      : "border-zinc-200/70 bg-white dark:border-zinc-800 dark:bg-zinc-900"}`}>
-                <span className={`flex h-12 w-12 flex-none items-center justify-center rounded-full text-2xl
-                  ${overall === "ok" ? "bg-green-500/15 text-green-500" : overall === "bad" ? "bg-red-500/15 text-red-500" : overall === "warn" ? "bg-amber-500/15 text-amber-500" : "bg-zinc-500/10 text-zinc-400"}`}>
+              <div className={`rise neo-card neo-flat mb-6 flex items-center gap-4 p-6
+                ${overall === "ok" ? "neo-green" : overall === "bad" ? "neo-red" : overall === "warn" ? "neo-amber" : "neo-zinc"}`}>
+                <span className={`flex h-12 w-12 flex-none items-center justify-center rounded-lg border-2 text-2xl shadow-[2px_2px_0_0_var(--neo)]
+                  ${overall === "ok" ? "border-green-600 bg-green-100 text-green-600 dark:bg-green-500/15"
+                    : overall === "bad" ? "border-red-600 bg-red-100 text-red-600 dark:bg-red-500/15"
+                      : overall === "warn" ? "border-amber-600 bg-amber-100 text-amber-600 dark:bg-amber-500/15"
+                        : "border-zinc-400 bg-zinc-100 text-zinc-400"}`}>
                   {overall === "ok" ? "✓" : overall === "bad" ? "✕" : overall === "warn" ? "!" : "○"}
                 </span>
                 <div className="min-w-0">
@@ -96,7 +99,7 @@ export default function App() {
                   <div className="mt-0.5 text-xs text-zinc-400">
                     {monitors.length ? `共 ${monitors.length} 个监控` : "在管理后台添加第一个监控"}
                     {avgUptime !== null ? ` · 24h 平均在线率 ${fmtPct(avgUptime)}` : ""}
-                    {` · ${refreshing ? "更新中…" : `更新于 ${new Date(data.now).toLocaleTimeString("zh-CN", { hour12: false })}`}`}
+                    {` · ${refreshing ? "更新中…" : `更新于 ${fmtAgo(data.now, now)}`}`}
                   </div>
                 </div>
               </div>
@@ -114,15 +117,17 @@ export default function App() {
                   </div>
                 ))}
                 {!monitors.length && (
-                  <div className="rounded-2xl border border-dashed border-zinc-300 p-10 text-center text-sm text-zinc-400 dark:border-zinc-700">
+                  <div className="neo-card neo-zinc neo-flat p-10 text-center text-sm text-zinc-400">
                     还没有监控项，<a className="text-green-600 hover:underline dark:text-green-400" href="/admin.html">去添加 →</a>
                   </div>
                 )}
               </div>
 
               {/* 事件时间线 */}
-              <h2 className="mb-3 mt-8 px-1 text-sm font-semibold text-zinc-400">事件时间线</h2>
-              <div className="rise" style={{ animationDelay: "120ms" }}>
+              <h2 className="mb-3 mt-8">
+                <span className="neo-badge">事件时间线</span>
+              </h2>
+              <div className="rise neo-card neo-zinc neo-flat p-5" style={{ animationDelay: "120ms" }}>
                 <Timeline events={events} />
               </div>
             </>

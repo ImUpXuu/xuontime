@@ -69,3 +69,55 @@ body {
     transition: none !important;
   }
 }
+
+/* ---------- 新粗野主义卡片（对齐 i.upxuu.com 的 neo-box 风格） ---------- */
+/* 用法：neo-card 定形状，neo-sky/green/amber/red 定语义色 */
+.neo-card {
+  --neo: #0284c7;
+  background: rgba(255, 255, 255, 0.92);
+  border: 2px solid var(--neo);
+  border-radius: 12px;
+  box-shadow: 3px 3px 0 0 var(--neo);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.neo-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 0 #f59e0b;
+}
+.neo-sky { --neo: #0284c7; }
+.neo-green { --neo: #16a34a; }
+.neo-amber { --neo: #d97706; }
+.neo-red { --neo: #dc2626; }
+.neo-zinc { --neo: #52525b; }
+/* 静态面板：不要 hover 抬起 */
+.neo-flat.neo-card:hover {
+  transform: none;
+  box-shadow: 3px 3px 0 0 var(--neo);
+}
+.dark .neo-card { background: rgba(24, 24, 27, 0.92); }
+.dark .neo-card:hover { box-shadow: 5px 5px 0 0 #fde68a; }
+.dark .neo-flat.neo-card:hover { box-shadow: 3px 3px 0 0 var(--neo); }
+
+/* 琥珀小徽章（WEB SERVICES 风格） */
+.neo-badge {
+  display: inline-block;
+  background: #fde047;
+  border: 2px solid #0284c7;
+  border-radius: 6px;
+  box-shadow: 2px 2px 0 0 #0284c7;
+  padding: 2px 10px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #0c4a6e;
+}
+.dark .neo-badge { box-shadow: 2px 2px 0 0 #38bdf8; }
+
+/* 奶油底蓝色点阵背景（铺在状态页根节点） */
+.neo-dots {
+  background-image: radial-gradient(rgba(2, 132, 199, 0.13) 1.2px, transparent 1.2px);
+  background-size: 24px 24px;
+}
+.dark .neo-dots {
+  background-image: radial-gradient(rgba(56, 189, 248, 0.07) 1.2px, transparent 1.2px);
+}

@@ -1,9 +1,63 @@
 import { useEffect, useState } from "react";
-import { api } from "./api.js";
+import { api, setToken } from "./api.js";
 import Timeline from "../components/Timeline.jsx";
 
 const KEY_MASK = "********";
 const inputCls = "w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm outline-none transition-colors focus:border-green-500 dark:border-zinc-700 dark:bg-zinc-800";
+
+// 修改管理员密码：成功后换存新 token（旧会话已全部失效）
+function PasswordCard({ setMsg }) {
+  const [oldPw, setOldPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!oldPw || !newPw) return setMsg({ text: "请填写旧密码和新密码", kind: "err" });
+    if (newPw.length < 8) return setMsg({ text: "新密码至少 8 位", kind: "err" });
+    if (newPw !== confirm) return setMsg({ text: "两次输入的新密码不一致", kind: "err" });
+    setBusy(true);
+    try {
+      const r = await api("/api/admin/password", { method: "PUT", body: { oldPassword: oldPw, newPassword: newPw } });
+      setToken(r.token);
+      setOldPw(""); setNewPw(""); setConfirm("");
+      setMsg({ text: "✅ 密码已修改，其他已登录的会话已全部失效", kind: "ok" });
+    } catch (e) {
+      setMsg({ text: e.message, kind: "err" });
+    } finally {
+      setBusy(false);
+      setTimeout(() => setMsg(null), 6000);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-zinc-200/70 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <h3 className="font-bold">账号安全</h3>
+      <p className="mb-3 mt-1 text-xs text-zinc-400">修改密码后其他已登录会话（含其他浏览器/设备）会立即失效，需重新登录。</p>
+      <div className="grid grid-cols-3 gap-3">
+        <label className="block">
+          <span className="mb-1 block text-xs text-zinc-400">旧密码</span>
+          <input className={inputCls} type="password" autoComplete="current-password"
+            value={oldPw} onChange={(e) => setOldPw(e.target.value)} />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs text-zinc-400">新密码（至少 8 位）</span>
+          <input className={inputCls} type="password" autoComplete="new-password"
+            value={newPw} onChange={(e) => setNewPw(e.target.value)} />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs text-zinc-400">确认新密码</span>
+          <input className={inputCls} type="password" autoComplete="new-password"
+            value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        </label>
+      </div>
+      <button onClick={submit} disabled={busy}
+        className="mt-3 rounded-lg border border-zinc-200/80 px-4 py-2 text-sm text-zinc-600 transition-colors hover:border-amber-400 hover:text-amber-500 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300">
+        {busy ? "提交中…" : "修改密码"}
+      </button>
+    </div>
+  );
+}
 
 export function SettingsPanel({ guard }) {
   const [s, setS] = useState(null);
@@ -122,6 +176,8 @@ export function SettingsPanel({ guard }) {
           </label>
         </div>
       </div>
+
+      <PasswordCard setMsg={setMsg} />
 
       <div className="flex items-center gap-3">
         <button onClick={save} disabled={busy}

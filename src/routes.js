@@ -10,6 +10,7 @@ import { applyCheckResult, acquireLock, releaseLock } from "./lib/state.js";
 import { runCheckWithRetry, checkPush } from "./lib/checkers.js";
 import { handleTickRequest } from "./tick.js";
 import { sendTestNotification, notifyConfigured } from "./lib/notify.js";
+import { verifyCapToken } from "./lib/captcha.js";
 
 const ROUTES = [
   ["POST", /^\/api\/tick$/, (req, env) => handleTickRequest(req, env)],
@@ -28,6 +29,7 @@ const ROUTES = [
   ["GET", /^\/api\/admin\/settings$/, handleSettingsGet],
   ["PUT", /^\/api\/admin\/settings$/, handleSettingsPut],
   ["POST", /^\/api\/admin\/notify-test$/, handleNotifyTest],
+  ["PUT", /^\/api\/admin\/password$/, handlePasswordPut],
 ];
 
 export async function route(request, env) {
@@ -224,6 +226,8 @@ async function handleSetupPost(request, env) {
   const settings = await ensureSettings(env);
   if (settings.adminPasswordHash) return json({ error: "已完成初始化，请直接登录" }, 403);
   const body = await request.json().catch(() => ({}));
+  const captcha = await verifyCapToken(env, body?.captchaToken);
+  if (captcha) return json({ error: captcha.error }, captcha.status);
   const password = typeof body?.password === "string" ? body.password : "";
   if (password.length < 8) return badRequest("密码至少 8 位");
   settings.adminPasswordHash = await hashPassword(password);
@@ -236,6 +240,8 @@ async function handleLogin(request, env) {
   const settings = await ensureSettings(env);
   if (!settings.adminPasswordHash) return badRequest("尚未初始化，请先设置管理员密码");
   const body = await request.json().catch(() => ({}));
+  const captcha = await verifyCapToken(env, body?.captchaToken);
+  if (captcha) return json({ error: captcha.error }, captcha.status);
   const password = typeof body?.password === "string" ? body.password : "";
   if (!(await verifyPassword(password, settings.adminPasswordHash))) {
     return json({ error: "密码错误" }, 401);
@@ -500,4 +506,24 @@ async function handleNotifyTest(request, env) {
   }
   const result = await sendTestNotification(env);
   return json(result, result.ok ? 200 : 502);
+}
+
+// 修改管理员密码：token 以密码哈希为签名密钥，改完所有旧会话自动失效，
+// 响应返回用新哈希签发的新 token，当前会话无缝续期
+async function handlePasswordPut(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+
+  const body = await request.json().catch(() => ({}));
+  const oldPw = typeof body?.oldPassword === "string" ? body.oldPassword : "";
+  const newPw = typeof body?.newPassword === "string" ? body.newPassword : "";
+  if (!(await verifyPassword(oldPw, settings.adminPasswordHash))) {
+    return json({ error: "旧密码错误" }, 401);
+  }
+  if (newPw.length < 8) return badRequest("新密码至少 8 位");
+  if (newPw === oldPw) return badRequest("新密码不能与旧密码相同");
+
+  settings.adminPasswordHash = await hashPassword(newPw);
+  await saveSettings(env, settings);
+  return json({ ok: true, token: await signToken(settings.adminPasswordHash) });
 }

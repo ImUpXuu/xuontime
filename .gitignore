@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+
+# local artifacts
+logs/
+output/
+dist/
+*.log
+.zcode/
+
+# scratch / local dumps
+scratch/
+*.local.json

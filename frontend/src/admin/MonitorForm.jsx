@@ -114,7 +114,7 @@ export default function MonitorForm({ editing, onClose, onSaved, guard }) {
               <div className="grid grid-cols-3 gap-3">
                 <Field label="检测间隔（秒）"><input name="intervalSec" type="number" min="60" max="86400" defaultValue={existing?.intervalSec ?? (type === "cert" ? 86400 : 60)} className={inputCls} /></Field>
                 <Field label="超时（秒）"><input name="timeoutSec" type="number" min="1" max="30" defaultValue={existing?.timeoutSec ?? 10} className={inputCls} /></Field>
-                <Field label="连续失败 N 次判故障"><input name="retries" type="number" min="1" max="10" defaultValue={existing?.retries ?? 2} className={inputCls} /></Field>
+                <Field label="失败重试次数（0-5）"><input name="retries" type="number" min="0" max="5" defaultValue={existing?.retries ?? 2} className={inputCls} /></Field>
               </div>
               <div className="flex gap-5 pt-1">
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="notify" defaultChecked={existing?.notify !== false} />故障/恢复时发通知</label>

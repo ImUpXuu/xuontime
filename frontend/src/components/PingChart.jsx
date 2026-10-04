@@ -11,16 +11,24 @@ export default function PingChart({ series, height = 220, dark = false }) {
     const axisColor = dark ? "#71717a" : "#a1a1aa";
     const splitColor = dark ? "#27272a" : "#e4e4e7";
 
-    // 失败区间 → 红色 markArea
+    // 失败区间 → 琥珀色 markArea（黄色 = 波动/故障时段，折线在该区间留空）。
+    // 区间右端取恢复点：单桶故障若右端仍用失败点自身会是零宽度、看不见。
     const spans = [];
     let start = null;
     let prevT = null;
     for (const [t, ok] of data) {
-      if (!ok && start === null) start = t;
-      if (!ok) prevT = t;
-      if (ok && start !== null) { spans.push([{ xAxis: start }, { xAxis: prevT }]); start = null; }
+      if (!ok) {
+        if (start === null) start = t;
+        prevT = t;
+      } else if (start !== null) {
+        spans.push([{ xAxis: start }, { xAxis: t }]);
+        start = null;
+      }
     }
-    if (start !== null) spans.push([{ xAxis: start }, { xAxis: prevT }]);
+    if (start !== null) {
+      const step = data.length > 1 ? data[data.length - 1][0] - data[data.length - 2][0] : 900000;
+      spans.push([{ xAxis: start }, { xAxis: prevT + Math.max(step, 60000) }]);
+    }
 
     return {
       animation: false,
@@ -50,7 +58,10 @@ export default function PingChart({ series, height = 220, dark = false }) {
           if (!p) return "";
           const time = new Date(p.value[0]).toLocaleString("zh-CN", { hour12: false });
           const ms = p.value[1];
-          return `<div style="font-weight:600">${time}</div><div style="color:#22c55e">✓ ${ms === null || ms === undefined ? "—" : fmtMs(ms)}</div>`;
+          if (ms === null || ms === undefined) {
+            return `<div style="font-weight:600">${time}</div><div style="color:#f59e0b">✗ 该时段检测失败</div>`;
+          }
+          return `<div style="font-weight:600">${time}</div><div style="color:#22c55e">✓ ${fmtMs(ms)}</div>`;
         },
       },
       series: [{
@@ -64,7 +75,7 @@ export default function PingChart({ series, height = 220, dark = false }) {
         areaStyle: { color: "rgba(34,197,94,0.10)" },
         markArea: spans.length ? {
           silent: true,
-          itemStyle: { color: "rgba(239,68,68,0.10)" },
+          itemStyle: { color: "rgba(245,158,11,0.13)" },
           data: spans.map(([a, b]) => [{ xAxis: a.xAxis }, { xAxis: b.xAxis }]),
         } : undefined,
       }],

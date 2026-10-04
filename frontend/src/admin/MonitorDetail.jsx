@@ -207,12 +207,14 @@ function BeatsStrip({ beats, tip: { show, move } }) {
     <div className="flex h-10 gap-[3px]" onMouseLeave={() => undefined}>
       {beats.slice().reverse().map((b) => (
         <div key={b.t}
-          className={`cell h-full min-w-[5px] flex-1 rounded-[3px] ${b.ok ? "bg-green-500" : "bg-red-500"}`}
+          className={`cell h-full min-w-[5px] flex-1 rounded-[3px] ${b.ok ? (b.degraded ? "bg-amber-400" : "bg-green-500") : "bg-red-500"}`}
           onMouseEnter={show(
             <div className="space-y-0.5">
               <div className="font-medium">{fmtClock(b.t)}</div>
               {b.ok
-                ? <div className="text-green-600 dark:text-green-400">✓ {fmtMs(b.ms)}</div>
+                ? b.degraded
+                  ? <div className="text-amber-500">⚠ 重试后成功 · {fmtMs(b.ms)}</div>
+                  : <div className="text-green-600 dark:text-green-400">✓ {fmtMs(b.ms)}</div>
                 : <div className="max-w-[240px] text-red-500">✗ {b.msg || "失败"}</div>}
             </div>,
           )}

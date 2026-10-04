@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS checks (
   monitor_id TEXT NOT NULL,
   t          INTEGER NOT NULL,
   ok         INTEGER NOT NULL,
+  degraded   INTEGER NOT NULL DEFAULT 0, -- 重试后成功：ok=1 且 degraded=1（UI 标黄）
   ms         INTEGER NOT NULL DEFAULT 0,
   msg        TEXT,
   PRIMARY KEY (monitor_id, t)

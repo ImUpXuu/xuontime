@@ -27,7 +27,7 @@ export function validateMonitor(input) {
 
   out.timeoutSec = clampInt(input.timeoutSec, 1, 30, 10);
   out.intervalSec = clampInt(input.intervalSec, type === "cert" ? 3600 : 60, 86400, type === "cert" ? 86400 : 60);
-  out.retries = clampInt(input.retries, 1, 10, 2);
+  out.retries = clampInt(input.retries, 0, 5, 2); // 失败后立即重试次数（0-5，受每轮子请求预算约束）
   out.notify = input.notify !== false;
   out.public = input.public !== false;
   out.paused = !!input.paused;

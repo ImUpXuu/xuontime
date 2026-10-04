@@ -56,7 +56,8 @@ export async function applyCheckResult(env, { monitor, status, result, now }) {
   } else {
     next.consecutive_fails += 1;
     next.consecutive_oks = 0;
-    const threshold = Math.max(1, Number(monitor.retries) || 2);
+    // 判 down 的连续失败轮数与重试次数共用一个配置：0 也视为 1（当轮即判）
+    const threshold = Math.max(1, Math.floor(Number(monitor.retries) || 0));
     if (prev !== "down" && next.consecutive_fails >= threshold) {
       next.state = "down";
       next.since = now;
@@ -97,8 +98,11 @@ export async function applyCheckResult(env, { monitor, status, result, now }) {
       next.cert_expires_at, next.cert_refresh_at, next.last_cert_warn_at, monitor.id,
     ),
     env.DB.prepare(
-      "INSERT OR REPLACE INTO checks (monitor_id, t, ok, ms, msg) VALUES (?, ?, ?, ?, ?)",
-    ).bind(monitor.id, now, result.ok ? 1 : 0, result.ms || 0, result.ok ? null : String(result.msg || "").slice(0, 200)),
+      "INSERT OR REPLACE INTO checks (monitor_id, t, ok, degraded, ms, msg) VALUES (?, ?, ?, ?, ?, ?)",
+    ).bind(
+      monitor.id, now, result.ok ? 1 : 0, result.ok && result.degraded ? 1 : 0, result.ms || 0,
+      result.ok ? (result.degraded ? String(result.msg || "").slice(0, 200) : null) : String(result.msg || "").slice(0, 200),
+    ),
     env.DB.prepare(
       `INSERT INTO rollup_days (monitor_id, day, ok, total, fails, sum_ms)
        VALUES (?, ?, ?, 1, ?, ?)

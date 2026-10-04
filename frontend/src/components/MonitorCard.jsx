@@ -7,6 +7,11 @@ export default function MonitorCard({ monitor: m, barDays, latency, now }) {
   const st = STATE[m.state] || STATE.pending;
   const isDown = m.state === "down";
   const up = m.uptime || {};
+  // 在线但 24h 有失败记录 → 琥珀色「波动」，避免轻微故障整页飘红
+  const degraded = !isDown && m.state !== "paused" && typeof up.h24 === "number" && up.h24 < 100;
+  const chip = degraded
+    ? { label: "波动", chip: "bg-amber-500/10 text-amber-600 dark:text-amber-400" }
+    : st;
 
   const chips = [
     ["24 小时", up.h24],
@@ -17,7 +22,7 @@ export default function MonitorCard({ monitor: m, barDays, latency, now }) {
 
   return (
     <div className={`rise rounded-2xl border bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg dark:bg-zinc-900
-      ${isDown ? "border-red-300/70 dark:border-red-500/30" : "border-zinc-200/70 dark:border-zinc-800"}`}>
+      ${isDown ? "border-red-300/70 dark:border-red-500/30" : degraded ? "border-amber-400/50 dark:border-amber-500/25" : "border-zinc-200/70 dark:border-zinc-800"}`}>
       {/* 头部：状态点 + 名称 + 类型 */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -27,8 +32,8 @@ export default function MonitorCard({ monitor: m, barDays, latency, now }) {
             {TYPE_LABEL[m.type] || m.type}
           </span>
         </div>
-        <span className={`flex-none rounded-full px-2.5 py-1 text-xs font-semibold ${st.chip}`}>
-          {st.label}
+        <span className={`flex-none rounded-full px-2.5 py-1 text-xs font-semibold ${chip.chip}`}>
+          {chip.label}
         </span>
       </div>
 
@@ -51,7 +56,7 @@ export default function MonitorCard({ monitor: m, barDays, latency, now }) {
       {/* 在线率 chips */}
       <div className="mt-3.5 flex flex-wrap gap-1.5 pl-[22px]">
         {chips.map(([label, v]) => {
-          const bad = typeof v === "number" && v < 99;
+          const bad = typeof v === "number" && v < 95;
           const warn = !bad && typeof v === "number" && v < 99.9;
           return (
             <span key={label}

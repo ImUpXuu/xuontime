@@ -4,9 +4,11 @@ import { json } from "./lib/http.js";
 import { ensureSettings, getMonitor, getStatus, initialStatusRow, insertStatus, getMeta, setMeta, utcDateKey } from "./lib/db.js";
 import { secretMatches } from "./lib/auth.js";
 import { acquireLock, releaseLock, applyCheckResult, pruneOld, MAX_TICK_MONITORS } from "./lib/state.js";
-import { runCheck, checkPush, runPool, fetchCertDays } from "./lib/checkers.js";
+import { runCheckWithRetry, checkPush, runPool, fetchCertDays } from "./lib/checkers.js";
 
 const CERT_REFRESH_INTERVAL_MS = 20 * 3600 * 1000;
+// 免费 plan 每 invocation 50 个子请求：15 监控基础检测 + crt.sh 余量后，留给重试的预算
+const RETRY_BUDGET_PER_TICK = 30;
 
 export async function runTick(env) {
   const settings = await ensureSettings(env);
@@ -24,6 +26,7 @@ export async function runTick(env) {
 
     const monitors = (await Promise.all(dueIds.map((r) => getMonitor(env, r.id)))).filter(Boolean);
     const results = [];
+    const budget = { left: RETRY_BUDGET_PER_TICK };
 
     await runPool(monitors, 8, async (monitor) => {
       try {
@@ -44,7 +47,7 @@ export async function runTick(env) {
             .bind(monitor.id).first();
           result = checkPush(monitor, beat?.t || 0, now);
         } else {
-          result = await runCheck(monitor);
+          result = await runCheckWithRetry(monitor, budget);
           if (monitor.type === "cert") {
             result = await enrichCert(env, monitor, status, result, now);
           }

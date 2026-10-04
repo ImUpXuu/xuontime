@@ -35,8 +35,11 @@ export default function App() {
 
   const monitors = data?.monitors || [];
   const downCount = monitors.filter((m) => m.state === "down").length;
+  const warnCount = monitors.filter(
+    (m) => m.state !== "paused" && m.state !== "down" && typeof m.uptime?.h24 === "number" && m.uptime.h24 < 100,
+  ).length;
   const activeCount = monitors.filter((m) => m.state !== "paused").length;
-  const overall = !monitors.length ? "empty" : downCount > 0 ? "bad" : activeCount ? "ok" : "empty";
+  const overall = !monitors.length ? "empty" : downCount > 0 ? "bad" : warnCount > 0 ? "warn" : activeCount ? "ok" : "empty";
   const avgUptime = (() => {
     const vals = monitors.filter((m) => m.state !== "paused" && typeof m.uptime?.h24 === "number").map((m) => m.uptime.h24);
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
@@ -79,14 +82,16 @@ export default function App() {
                   ? "border-green-500/20 bg-gradient-to-r from-green-500/10 to-transparent"
                   : overall === "bad"
                     ? "border-red-500/25 bg-gradient-to-r from-red-500/10 to-transparent"
-                    : "border-zinc-200/70 bg-white dark:border-zinc-800 dark:bg-zinc-900"}`}>
+                    : overall === "warn"
+                      ? "border-amber-500/25 bg-gradient-to-r from-amber-500/10 to-transparent"
+                      : "border-zinc-200/70 bg-white dark:border-zinc-800 dark:bg-zinc-900"}`}>
                 <span className={`flex h-12 w-12 flex-none items-center justify-center rounded-full text-2xl
-                  ${overall === "ok" ? "bg-green-500/15 text-green-500" : overall === "bad" ? "bg-red-500/15 text-red-500" : "bg-zinc-500/10 text-zinc-400"}`}>
-                  {overall === "ok" ? "✓" : overall === "bad" ? "✕" : "○"}
+                  ${overall === "ok" ? "bg-green-500/15 text-green-500" : overall === "bad" ? "bg-red-500/15 text-red-500" : overall === "warn" ? "bg-amber-500/15 text-amber-500" : "bg-zinc-500/10 text-zinc-400"}`}>
+                  {overall === "ok" ? "✓" : overall === "bad" ? "✕" : overall === "warn" ? "!" : "○"}
                 </span>
                 <div className="min-w-0">
-                  <div className={`text-lg font-bold ${overall === "ok" ? "text-green-600 dark:text-green-400" : overall === "bad" ? "text-red-500" : ""}`}>
-                    {overall === "ok" ? "所有系统运行正常" : overall === "bad" ? `${downCount} 个服务出现故障` : "暂无监控项"}
+                  <div className={`text-lg font-bold ${overall === "ok" ? "text-green-600 dark:text-green-400" : overall === "bad" ? "text-red-500" : overall === "warn" ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                    {overall === "ok" ? "所有系统运行正常" : overall === "bad" ? `${downCount} 个服务出现故障` : overall === "warn" ? `${warnCount} 个服务存在波动` : "暂无监控项"}
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-400">
                     {monitors.length ? `共 ${monitors.length} 个监控` : "在管理后台添加第一个监控"}

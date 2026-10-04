@@ -7,7 +7,7 @@ import {
 } from "./lib/db.js";
 import { hashPassword, verifyPassword, signToken, requireAdmin, secretMatches } from "./lib/auth.js";
 import { applyCheckResult, acquireLock, releaseLock } from "./lib/state.js";
-import { runCheck, checkPush } from "./lib/checkers.js";
+import { runCheckWithRetry, checkPush } from "./lib/checkers.js";
 import { handleTickRequest } from "./tick.js";
 import { sendTestNotification, notifyConfigured } from "./lib/notify.js";
 
@@ -340,9 +340,9 @@ async function handleMonitorDetail(request, env, params) {
   const avgMs24h = Math.round(aggByMonitor.get(monitor.id)?.avg_ms ?? 0) || null;
 
   const { results: beatRows } = await env.DB.prepare(
-    "SELECT t, ok, ms, msg FROM checks WHERE monitor_id = ? ORDER BY t DESC LIMIT 50",
+    "SELECT t, ok, degraded, ms, msg FROM checks WHERE monitor_id = ? ORDER BY t DESC LIMIT 50",
   ).bind(monitor.id).all();
-  const beats = (beatRows || []).map((r) => ({ t: r.t, ok: !!r.ok, ms: r.ms, msg: r.msg || "" }));
+  const beats = (beatRows || []).map((r) => ({ t: r.t, ok: !!r.ok, degraded: !!r.degraded, ms: r.ms, msg: r.msg || "" }));
 
   const { results: raw } = await env.DB.prepare(
     "SELECT t, ok, ms FROM checks WHERE monitor_id = ? AND t >= ? ORDER BY t ASC",
@@ -405,7 +405,7 @@ async function handleMonitorCheck(request, env, params) {  const settings = awai
       const beat = await env.DB.prepare("SELECT t FROM beats WHERE monitor_id = ?").bind(monitor.id).first();
       result = checkPush(monitor, beat?.t || 0, now);
     } else {
-      result = await runCheck(monitor);
+      result = await runCheckWithRetry(monitor, { left: 5 });
     }
     const updated = await applyCheckResult(env, { monitor, status, result, now });
     return json({

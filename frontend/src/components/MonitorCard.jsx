@@ -1,6 +1,6 @@
 import HeartbeatBar from "./HeartbeatBar.jsx";
-import LatencyChart from "./LatencyChart.jsx";
-import { fmtAgo, fmtClock, fmtMs, fmtPct, STATE, TYPE_LABEL } from "../fmt.js";
+import PingChart from "./PingChart.jsx";
+import { fmtAgo, fmtMs, fmtPct, STATE, TYPE_LABEL } from "../fmt.js";
 
 // 单个监控卡片（Uptime Kuma 风格）
 export default function MonitorCard({ monitor: m, barDays, latency, now }) {
@@ -72,7 +72,7 @@ export default function MonitorCard({ monitor: m, barDays, latency, now }) {
 
       {/* 24h 延迟曲线 */}
       <div className="mt-4">
-        <LatencyChart points={latency} />
+        <PingChart series={latency} height={160} />
       </div>
     </div>
   );

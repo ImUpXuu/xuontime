@@ -1,8 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { resolve } from "node:path";
 
-// 开发时 vite 跑 5173，API 代理到 wrangler dev (8788)
+// 两个入口：状态页 index.html + 管理后台 admin.html
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
@@ -12,5 +13,11 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        admin: resolve(__dirname, "admin.html"),
+      },
+    },
   },
 });

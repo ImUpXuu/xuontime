@@ -21,6 +21,7 @@ const ROUTES = [
   ["POST", /^\/api\/login$/, handleLogin],
   ["GET", /^\/api\/admin\/monitors$/, handleMonitorsList],
   ["POST", /^\/api\/admin\/monitors$/, handleMonitorCreate],
+  ["GET", /^\/api\/admin\/monitors\/(?<id>[^/]+)\/detail$/, handleMonitorDetail],
   ["PUT", /^\/api\/admin\/monitors\/(?<id>[^/]+)$/, handleMonitorUpdate],
   ["DELETE", /^\/api\/admin\/monitors\/(?<id>[^/]+)$/, handleMonitorDelete],
   ["POST", /^\/api\/admin\/monitors\/(?<id>[^/]+)\/check$/, handleMonitorCheck],
@@ -72,6 +73,23 @@ async function handlePush(request, env, params) {
 
 // ---------- 公开状态 ----------
 
+// 拉取在线率计算所需的 rollup（90d）与 24h 聚合
+async function loadUptimeMaps(env, now) {
+  const { results: rollups } = await env.DB.prepare(
+    "SELECT monitor_id, day, ok, total, fails, sum_ms FROM rollup_days WHERE day >= ?",
+  ).bind(utcDateKey(now - 90 * 86400000)).all();
+  const rollByMonitor = new Map();
+  for (const r of rollups) {
+    if (!rollByMonitor.has(r.monitor_id)) rollByMonitor.set(r.monitor_id, new Map());
+    rollByMonitor.get(r.monitor_id).set(r.day, r);
+  }
+  const { results: agg24 } = await env.DB.prepare(
+    `SELECT monitor_id, COUNT(*) AS total, SUM(ok) AS ok, AVG(CASE WHEN ok = 1 THEN ms END) AS avg_ms
+     FROM checks WHERE t >= ? GROUP BY monitor_id`,
+  ).bind(now - 86400000).all();
+  return { rollByMonitor, aggByMonitor: new Map(agg24.map((r) => [r.monitor_id, r])) };
+}
+
 async function handleStatus(request, env) {
   const settings = await ensureSettings(env);
   const now = Date.now();
@@ -83,20 +101,7 @@ async function handleStatus(request, env) {
      WHERE m.public = 1 ORDER BY m.created_at ASC`,
   ).all();
 
-  const { results: rollups } = await env.DB.prepare(
-    "SELECT monitor_id, day, ok, total, fails, sum_ms FROM rollup_days WHERE day >= ?",
-  ).bind(utcDateKey(now - 90 * 86400000)).all();
-  const rollByMonitor = new Map();
-  for (const r of rollups) {
-    if (!rollByMonitor.has(r.monitor_id)) rollByMonitor.set(r.monitor_id, new Map());
-    rollByMonitor.get(r.monitor_id).set(r.day, r);
-  }
-
-  const { results: agg24 } = await env.DB.prepare(
-    `SELECT monitor_id, COUNT(*) AS total, SUM(ok) AS ok, AVG(CASE WHEN ok = 1 THEN ms END) AS avg_ms
-     FROM checks WHERE t >= ? GROUP BY monitor_id`,
-  ).bind(now - 86400000).all();
-  const agg24ByMonitor = new Map(agg24.map((r) => [r.monitor_id, r]));
+  const { rollByMonitor, aggByMonitor } = await loadUptimeMaps(env, now);
 
   const { results: buckets } = await env.DB.prepare(
     `SELECT monitor_id, (t / 900000) * 900000 AS b, SUM(ok) AS ok, COUNT(*) AS n,
@@ -121,8 +126,8 @@ async function handleStatus(request, env) {
       since: m.since || 0,
       lastCheckAt: m.last_check_at || 0,
       lastMsg: String(m.last_msg || "").slice(0, 200),
-      uptime: computeUptime(m.id, now, rollByMonitor.get(m.id), agg24ByMonitor.get(m.id)),
-      avgMs24h: m.last_check_at ? Math.round(agg24ByMonitor.get(m.id)?.avg_ms ?? 0) || null : null,
+      uptime: computeUptime(m.id, now, rollByMonitor.get(m.id), aggByMonitor.get(m.id)),
+      avgMs24h: m.last_check_at ? Math.round(aggByMonitor.get(m.id)?.avg_ms ?? 0) || null : null,
       certExpiresAt: m.cert_expires_at || 0,
       paused: !!m.paused,
     });
@@ -238,12 +243,20 @@ async function handleMonitorsList(request, env) {
   const settings = await ensureSettings(env);
   if (!(await requireAdmin(request, settings))) return unauthorized();
 
+  const now = Date.now();
   const monitors = await listMonitors(env);
-  const out = await Promise.all(monitors.map(async (m) => ({
-    ...m,
-    status: await getStatus(env, m.id),
-  })));
-  return json({ monitors: out });
+  const { rollByMonitor, aggByMonitor } = await loadUptimeMaps(env, now);
+  const out = await Promise.all(monitors.map(async (m) => {
+    const status = await getStatus(env, m.id);
+    return {
+      ...m,
+      status,
+      state: m.paused ? "paused" : status?.state || "pending",
+      uptime: computeUptime(m.id, now, rollByMonitor.get(m.id), aggByMonitor.get(m.id)),
+      avgMs24h: status?.lastCheckAt ? Math.round(aggByMonitor.get(m.id)?.avg_ms ?? 0) || null : null,
+    };
+  }));
+  return json({ monitors: out, now });
 }
 
 async function handleMonitorCreate(request, env) {
@@ -312,9 +325,62 @@ async function handleMonitorDelete(request, env, params) {
   return json({ ok: true });
 }
 
-// 立即检测：抢到锁就同步执行；抢不到把 next_run_at 置 0 排队给下一轮 tick
-async function handleMonitorCheck(request, env, params) {
+// 监控详情聚合：详情面板一次拉齐（配置+状态+在线率+最近心跳+24h 曲线）
+async function handleMonitorDetail(request, env, params) {
   const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+
+  const monitor = await getMonitor(env, params.id);
+  if (!monitor) return notFound("监控不存在");
+  const now = Date.now();
+
+  const status = await getStatus(env, monitor.id);
+  const { rollByMonitor, aggByMonitor } = await loadUptimeMaps(env, now);
+  const uptime = computeUptime(monitor.id, now, rollByMonitor.get(monitor.id), aggByMonitor.get(monitor.id));
+  const avgMs24h = Math.round(aggByMonitor.get(monitor.id)?.avg_ms ?? 0) || null;
+
+  const { results: beatRows } = await env.DB.prepare(
+    "SELECT t, ok, ms, msg FROM checks WHERE monitor_id = ? ORDER BY t DESC LIMIT 50",
+  ).bind(monitor.id).all();
+  const beats = (beatRows || []).map((r) => ({ t: r.t, ok: !!r.ok, ms: r.ms, msg: r.msg || "" }));
+
+  const { results: raw } = await env.DB.prepare(
+    "SELECT t, ok, ms FROM checks WHERE monitor_id = ? AND t >= ? ORDER BY t ASC",
+  ).bind(monitor.id, now - 86400000).all();
+  const series = downsampleRows(raw || [], 240);
+
+  return json({
+    now,
+    monitor,
+    status,
+    uptime,
+    avgMs24h,
+    lastMs: beats.length ? beats[0].ms : null,
+    beats,
+    series,
+  });
+}
+
+function downsampleRows(rows, maxPoints) {
+  if (rows.length <= maxPoints) return rows.map((r) => [r.t, r.ok ? 1 : 0, r.ms || 0]);
+  const k = rows.length / maxPoints;
+  const out = [];
+  for (let i = 0; i < maxPoints; i++) {
+    const slice = rows.slice(Math.floor(i * k), Math.floor((i + 1) * k) + 1);
+    if (!slice.length) continue;
+    const last = slice[slice.length - 1];
+    const anyFail = slice.some((r) => !r.ok);
+    const okRows = slice.filter((r) => r.ok);
+    const ms = okRows.length
+      ? Math.round(okRows.reduce((s, r) => s + (r.ms || 0), 0) / okRows.length)
+      : 0;
+    out.push([last.t, anyFail ? 0 : 1, ms]);
+  }
+  return out;
+}
+
+// 立即检测：抢到锁就同步执行；抢不到把 next_run_at 置 0 排队给下一轮 tick
+async function handleMonitorCheck(request, env, params) {  const settings = await ensureSettings(env);
   if (!(await requireAdmin(request, settings))) return unauthorized();
 
   const monitor = await getMonitor(env, params.id);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 // 全局滴答：相对时间自动刷新
 export function useNow(intervalMs = 5000) {
@@ -36,12 +37,18 @@ export function useFloatTip() {
 
 export function FloatTip({ tip }) {
   if (!tip) return null;
-  return (
+  // 必须 portal 到 body：任何祖先带 transform 都会让 fixed 相对该祖先定位（悬浮卡乱飘的根因）
+  return createPortal(
     <div
-      className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-[calc(100%+10px)] rounded-lg border border-zinc-200 bg-white/95 px-3 py-2 text-xs shadow-lg backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95"
-      style={{ left: tip.x, top: tip.y }}
+      className="pointer-events-none fixed z-50 max-w-xs rounded-lg border border-zinc-200 bg-white/95 px-3 py-2 text-xs shadow-lg backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95"
+      style={{
+        left: Math.min(tip.x, window.innerWidth - 150),
+        top: tip.y,
+        transform: "translate(-50%, calc(-100% - 12px))",
+      }}
     >
       {tip.node}
-    </div>
+    </div>,
+    document.body,
   );
 }

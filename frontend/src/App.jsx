@@ -41,8 +41,9 @@ export default function App() {
 
   const monitors = data?.monitors || [];
   const downCount = monitors.filter((m) => m.state === "down").length;
+  // 「波动」= 最近 15 分钟内有失败（后端 recentFailAt），恢复 15 分钟后横幅回绿
   const warnCount = monitors.filter(
-    (m) => m.state !== "paused" && m.state !== "down" && typeof m.uptime?.h24 === "number" && m.uptime.h24 < 100,
+    (m) => m.state !== "paused" && m.state !== "down" && !!m.recentFailAt,
   ).length;
   const activeCount = monitors.filter((m) => m.state !== "paused").length;
   const overall = !monitors.length ? "empty" : downCount > 0 ? "bad" : warnCount > 0 ? "warn" : activeCount ? "ok" : "empty";
@@ -55,7 +56,7 @@ export default function App() {
     <div className="min-h-screen bg-[#faf7f0] neo-dots dark:bg-zinc-950">
       <div className="mx-auto max-w-6xl px-4 pb-16 pt-8">
         {/* 顶栏 */}
-        <header className="mb-6 flex items-center justify-between">
+        <header className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <span className={`relative inline-block h-3.5 w-3.5 rounded-full
               ${overall === "ok" ? "bg-green-500 text-green-500 pulse-ring" : overall === "bad" ? "bg-red-500 text-red-500 pulse-ring" : "bg-zinc-400"}`} />
@@ -83,9 +84,9 @@ export default function App() {
         ) : (
           data && (
             <>
-              <div className={`rise neo-card neo-flat mb-6 flex items-center gap-4 p-6
+              <div className={`rise neo-card neo-flat mb-4 flex items-center gap-4 px-5 py-4
                 ${overall === "ok" ? "neo-green" : overall === "bad" ? "neo-red" : overall === "warn" ? "neo-amber" : "neo-zinc"}`}>
-                <span className={`flex h-12 w-12 flex-none items-center justify-center rounded-lg border-2 text-2xl shadow-[2px_2px_0_0_var(--neo)]
+                <span className={`flex h-10 w-10 flex-none items-center justify-center rounded-lg border-2 text-xl shadow-[2px_2px_0_0_var(--neo)]
                   ${overall === "ok" ? "border-green-600 bg-green-100 text-green-600 dark:bg-green-500/15"
                     : overall === "bad" ? "border-red-600 bg-red-100 text-red-600 dark:bg-red-500/15"
                       : overall === "warn" ? "border-amber-600 bg-amber-100 text-amber-600 dark:bg-amber-500/15"
@@ -93,7 +94,7 @@ export default function App() {
                   {overall === "ok" ? "✓" : overall === "bad" ? "✕" : overall === "warn" ? "!" : "○"}
                 </span>
                 <div className="min-w-0">
-                  <div className={`text-lg font-bold ${overall === "ok" ? "text-green-600 dark:text-green-400" : overall === "bad" ? "text-red-500" : overall === "warn" ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                  <div className={`text-base font-bold ${overall === "ok" ? "text-green-600 dark:text-green-400" : overall === "bad" ? "text-red-500" : overall === "warn" ? "text-amber-600 dark:text-amber-400" : ""}`}>
                     {overall === "ok" ? "所有系统运行正常" : overall === "bad" ? `${downCount} 个服务出现故障` : overall === "warn" ? `${warnCount} 个服务存在波动` : "暂无监控项"}
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-400">
@@ -104,10 +105,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 监控卡片 */}
-              <div className="space-y-5">
+              {/* 监控卡片：单列紧凑排布 */}
+              <div className="flex flex-col gap-3">
                 {monitors.map((m, i) => (
-                  <div key={m.id} className="rise" style={{ animationDelay: `${Math.min(i * 80, 400)}ms` }}>
+                  <div key={m.id} className="rise" style={{ animationDelay: `${Math.min(i * 60, 400)}ms` }}>
                     <MonitorCard
                       monitor={m}
                       barDays={data.bars?.[m.id]}
@@ -124,10 +125,10 @@ export default function App() {
               </div>
 
               {/* 事件时间线 */}
-              <h2 className="mb-3 mt-8">
+              <h2 className="mb-3 mt-6">
                 <span className="neo-badge">事件时间线</span>
               </h2>
-              <div className="rise neo-card neo-zinc neo-flat p-5" style={{ animationDelay: "120ms" }}>
+              <div className="rise neo-card neo-zinc neo-flat px-5 py-4" style={{ animationDelay: "120ms" }}>
                 <Timeline events={events} />
               </div>
             </>

@@ -76,7 +76,7 @@ async function handlePush(request, env, params) {
 // 拉取在线率计算所需的 rollup（90d）与 24h 聚合
 async function loadUptimeMaps(env, now) {
   const { results: rollups } = await env.DB.prepare(
-    "SELECT monitor_id, day, ok, total, fails, sum_ms FROM rollup_days WHERE day >= ?",
+    "SELECT monitor_id, day, ok, total, fails, sum_ms, min_ms, max_ms FROM rollup_days WHERE day >= ?",
   ).bind(utcDateKey(now - 90 * 86400000)).all();
   const rollByMonitor = new Map();
   for (const r of rollups) {
@@ -102,6 +102,13 @@ async function handleStatus(request, env) {
   ).all();
 
   const { rollByMonitor, aggByMonitor } = await loadUptimeMaps(env, now);
+
+  // 最近是否有失败（15 分钟窗口）：「波动」的判定依据，避免 24h 累计让横幅长期黄着
+  const RECENT_FAIL_MS = 15 * 60000;
+  const { results: recentFails } = await env.DB.prepare(
+    "SELECT monitor_id, MAX(t) AS last_fail_at FROM checks WHERE ok = 0 AND t >= ? GROUP BY monitor_id",
+  ).bind(now - RECENT_FAIL_MS).all();
+  const recentFailByMonitor = new Map(recentFails.map((r) => [r.monitor_id, r.last_fail_at]));
 
   const { results: buckets } = await env.DB.prepare(
     `SELECT monitor_id, (t / 900000) * 900000 AS b, SUM(ok) AS ok, COUNT(*) AS n,
@@ -129,6 +136,7 @@ async function handleStatus(request, env) {
       uptime: computeUptime(m.id, now, rollByMonitor.get(m.id), aggByMonitor.get(m.id)),
       avgMs24h: m.last_check_at ? Math.round(aggByMonitor.get(m.id)?.avg_ms ?? 0) || null : null,
       certExpiresAt: m.cert_expires_at || 0,
+      recentFailAt: recentFailByMonitor.get(m.id) || 0,
       paused: !!m.paused,
     });
     bars[m.id] = buildBars(m.id, now, rollByMonitor.get(m.id));
@@ -180,6 +188,8 @@ function buildBars(monitorId, now, rollMap) {
         ok: d.ok,
         total: d.total,
         avgMs: d.ok ? Math.round(d.sum_ms / d.ok) : null,
+        minMs: d.min_ms > 0 ? d.min_ms : null,
+        maxMs: d.max_ms > 0 ? d.max_ms : null,
       });
     }
   }

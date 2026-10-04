@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, setToken } from "./api.js";
+import QRCode from "qrcode";
+import { api, setToken, copyText } from "./api.js";
 import Timeline from "../components/Timeline.jsx";
 
 const KEY_MASK = "********";
@@ -55,6 +56,97 @@ function PasswordCard({ setMsg }) {
         className="mt-3 rounded-lg border border-zinc-200/80 px-4 py-2 text-sm text-zinc-600 transition-colors hover:border-amber-400 hover:text-amber-500 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300">
         {busy ? "提交中…" : "修改密码"}
       </button>
+    </div>
+  );
+}
+
+// 两步验证（TOTP 验证器）：扫码或手输密钥 → 输入 6 位码确认激活
+function TwoFactorCard({ enabled, setMsg, onChanged }) {
+  const [setup, setSetup] = useState(null); // { secret, otpauth, qr }
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const start = async () => {
+    setBusy(true);
+    try {
+      const r = await api("/api/admin/2fa/setup", { method: "POST" });
+      const qr = await QRCode.toDataURL(r.otpauth, { margin: 1, width: 180 });
+      setSetup({ ...r, qr });
+    } catch (e) {
+      setMsg({ text: e.message, kind: "err" });
+      setTimeout(() => setMsg(null), 4000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const act = async (action, okText) => {
+    if (!/^\d{6}$/.test(code)) return setMsg({ text: "请输入验证器的 6 位验证码", kind: "err" });
+    setBusy(true);
+    try {
+      await api(`/api/admin/2fa/${action}`, { method: "POST", body: { code } });
+      setSetup(null);
+      setCode("");
+      setMsg({ text: okText, kind: "ok" });
+      onChanged();
+    } catch (e) {
+      setMsg({ text: e.message, kind: "err" });
+    } finally {
+      setBusy(false);
+      setTimeout(() => setMsg(null), 5000);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-zinc-200/70 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <h3 className="font-bold">两步验证（2FA）</h3>
+      <p className="mt-1 text-xs text-zinc-400">
+        开启后登录需要「密码 + 验证器 6 位动态码」，兼容 Google Authenticator、Microsoft Authenticator、1Password 等 TOTP 验证器。
+      </p>
+
+      {enabled && !setup ? (
+        <div className="mt-3 space-y-3">
+          <p className="inline-block rounded-md bg-green-500/10 px-2.5 py-1 text-xs font-semibold text-green-600 dark:text-green-400">
+            ✓ 已开启 — 登录时需输入验证器动态码
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input className={`${inputCls} max-w-44`} inputMode="numeric" maxLength={6} placeholder="输入 6 位验证码以关闭"
+              value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+            <button onClick={() => act("disable", "两步验证已关闭")} disabled={busy}
+              className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-500 transition-colors hover:bg-red-500/5 disabled:opacity-50 dark:border-red-500/40">
+              {busy ? "处理中…" : "关闭两步验证"}
+            </button>
+          </div>
+        </div>
+      ) : setup ? (
+        <div className="mt-3 flex flex-wrap items-start gap-5">
+          <img src={setup.qr} alt="TOTP 二维码" width="180" height="180"
+            className="flex-none rounded-lg border border-zinc-200 dark:border-zinc-700" />
+          <div className="min-w-0 flex-1 space-y-2.5">
+            <p className="text-xs text-zinc-400">验证器扫码添加，或手动输入密钥：</p>
+            <div className="flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded bg-zinc-100 px-2 py-1 font-mono text-xs dark:bg-zinc-800">{setup.secret}</code>
+              <button onClick={() => copyText(setup.secret).then(() => setMsg({ text: "密钥已复制", kind: "ok" }))}
+                className="flex-none rounded-lg border border-zinc-300 px-3 py-1 text-xs dark:border-zinc-600">复制</button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input className={`${inputCls} max-w-44`} inputMode="numeric" maxLength={6} placeholder="输入 6 位验证码确认"
+                value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+              <button onClick={() => act("enable", "✅ 两步验证已开启，下次登录需输入动态码")} disabled={busy}
+                className="rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-600 disabled:opacity-50">
+                {busy ? "验证中…" : "确认开启"}
+              </button>
+              <button onClick={() => setSetup(null)} disabled={busy}
+                className="rounded-lg px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">取消</button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <button onClick={start} disabled={busy}
+          className="mt-3 rounded-lg border border-zinc-200/80 px-4 py-2 text-sm text-zinc-600 transition-colors hover:border-green-400 hover:text-green-600 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300">
+          {busy ? "生成中…" : "开启两步验证"}
+        </button>
+      )}
     </div>
   );
 }
@@ -178,6 +270,8 @@ export function SettingsPanel({ guard }) {
       </div>
 
       <PasswordCard setMsg={setMsg} />
+
+      <TwoFactorCard enabled={!!s.totp} setMsg={setMsg} onChanged={() => setS({ ...s, totp: !s.totp })} />
 
       <div className="flex items-center gap-3">
         <button onClick={save} disabled={busy}

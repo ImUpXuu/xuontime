@@ -64,6 +64,13 @@ export default function MonitorForm({ editing, onClose, onSaved, guard }) {
                   </select>
                 </Field>
               </div>
+              <Field label="分组（可选，侧栏与状态页分区显示）">
+                <input name="group" maxLength={50} list="monitor-group-options" placeholder="例如：生产环境 / 内部服务"
+                  defaultValue={existing?.group || ""} className={inputCls} />
+                <datalist id="monitor-group-options">
+                  {[...new Set((monitors || []).map((m) => (m.group || "").trim()).filter(Boolean))].map((g) => <option key={g} value={g} />)}
+                </datalist>
+              </Field>
 
               {type === "http" && (
                 <>
@@ -150,6 +157,7 @@ function collect(form, type) {
   const fd = new FormData(form);
   const body = {
     name: fd.get("name"),
+    group: String(fd.get("group") || "").trim(),
     type,
     intervalSec: Number(fd.get("intervalSec")),
     timeoutSec: Number(fd.get("timeoutSec")),

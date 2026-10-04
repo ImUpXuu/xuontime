@@ -98,6 +98,11 @@ export default function MonitorDetail({ monitorId, dark, now, guard, actions, on
       <div className="rise">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-bold tracking-tight">{m.name}</h1>
+          {m.group ? (
+            <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[11px] font-medium text-green-600 dark:text-green-400">
+              {m.group}
+            </span>
+          ) : null}
           <span className="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[11px] text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
             #{m.id.slice(-4)}
           </span>

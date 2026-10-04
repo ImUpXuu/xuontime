@@ -31,6 +31,7 @@ export function validateMonitor(input) {
   out.notify = input.notify !== false;
   out.public = input.public !== false;
   out.paused = !!input.paused;
+  out.group = str(input.group).slice(0, 50); // 可选：监控项分组（后台侧栏分区显示）
 
   if (type === "http") {
     const url = str(input.url);

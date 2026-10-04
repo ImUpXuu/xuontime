@@ -11,6 +11,7 @@ import { runCheckWithRetry, checkPush } from "./lib/checkers.js";
 import { handleTickRequest } from "./tick.js";
 import { sendTestNotification, notifyConfigured } from "./lib/notify.js";
 import { verifyCapToken } from "./lib/captcha.js";
+import { verifyTotp, newTotpSecret, otpauthUri } from "./lib/totp.js";
 import { loadUptimeMaps, computeUptime, buildBars, downsampleRows } from "./lib/metrics.js";
 import { handleApiV1 } from "./api_v1.js";
 import {
@@ -35,6 +36,9 @@ const ROUTES = [
   ["GET", /^\/api\/admin\/settings$/, handleSettingsGet],
   ["PUT", /^\/api\/admin\/settings$/, handleSettingsPut],
   ["POST", /^\/api\/admin\/notify-test$/, handleNotifyTest],
+  ["POST", /^\/api\/admin\/2fa\/setup$/, handle2faSetup],
+  ["POST", /^\/api\/admin\/2fa\/enable$/, handle2faEnable],
+  ["POST", /^\/api\/admin\/2fa\/disable$/, handle2faDisable],
   ["GET", /^\/api\/admin\/pages$/, handlePagesList],
   ["POST", /^\/api\/admin\/pages$/, handlePageCreate],
   ["PUT", /^\/api\/admin\/pages\/(?<id>[^/]+)$/, handlePageUpdate],
@@ -212,7 +216,7 @@ async function handleIncidents(request, env) {
 
 async function handleSetupGet(request, env) {
   const settings = await ensureSettings(env);
-  return json({ required: !settings.adminPasswordHash });
+  return json({ required: !settings.adminPasswordHash, totp: !!settings.totp?.enabled });
 }
 
 async function handleSetupPost(request, env) {
@@ -238,6 +242,11 @@ async function handleLogin(request, env) {
   const password = typeof body?.password === "string" ? body.password : "";
   if (!(await verifyPassword(password, settings.adminPasswordHash))) {
     return json({ error: "密码错误" }, 401);
+  }
+  // 两步验证：密码通过后必须再校验验证器 6 位码
+  if (settings.totp?.enabled) {
+    const ok = await verifyTotp(settings.totp.secret, body?.totp);
+    if (!ok) return json({ error: "两步验证码错误" }, 401);
   }
   return json({
     ok: true,
@@ -430,6 +439,7 @@ function maskSettings(settings) {
     },
     hasPassword: !!settings.adminPasswordHash,
     notifyConfigured: notifyConfigured(settings.notify),
+    totp: !!settings.totp?.enabled,
   };
 }
 
@@ -587,6 +597,54 @@ async function handleKeysAccess(request, env) {
   const body = await request.json().catch(() => ({}));
   const access = await saveApiAccess(env, settings, body || {});
   return json({ ok: true, access });
+}
+
+// ---------- 管理端：两步验证（TOTP 验证器） ----------
+
+// 生成待确认密钥：保存到 settings.totpPending，扫码后凭验证码激活
+async function handle2faSetup(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  if (settings.totp?.enabled) return json({ error: "两步验证已开启，请先关闭再重新设置" }, 400);
+
+  const secret = newTotpSecret();
+  settings.totpPending = secret;
+  await saveSettings(env, settings);
+  return json({ ok: true, secret, otpauth: otpauthUri(secret, settings.siteTitle || "Xuontime") });
+}
+
+// 凭验证码激活：成功后 pending 转正
+async function handle2faEnable(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  if (settings.totp?.enabled) return json({ error: "两步验证已开启" }, 400);
+  const pending = settings.totpPending;
+  if (!pending) return json({ error: "请先获取密钥（扫码）" }, 400);
+
+  const body = await request.json().catch(() => ({}));
+  if (!(await verifyTotp(pending, body?.code))) {
+    return json({ error: "验证码错误，请确认验证器时间正确后重试" }, 401);
+  }
+  settings.totp = { enabled: true, secret: pending };
+  delete settings.totpPending;
+  await saveSettings(env, settings);
+  return json({ ok: true, totp: true });
+}
+
+// 凭验证码关闭
+async function handle2faDisable(request, env) {
+  const settings = await ensureSettings(env);
+  if (!(await requireAdmin(request, settings))) return unauthorized();
+  if (!settings.totp?.enabled) return json({ error: "两步验证未开启" }, 400);
+
+  const body = await request.json().catch(() => ({}));
+  if (!(await verifyTotp(settings.totp.secret, body?.code))) {
+    return json({ error: "验证码错误" }, 401);
+  }
+  settings.totp = null;
+  delete settings.totpPending;
+  await saveSettings(env, settings);
+  return json({ ok: true, totp: false });
 }
 
 // 修改管理员密码：token 以密码哈希为签名密钥，改完所有旧会话自动失效，

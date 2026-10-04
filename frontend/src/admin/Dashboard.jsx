@@ -74,7 +74,7 @@ export default function Dashboard({ siteTitle, dark, toggle, logout, onAuthError
         </div>
       </header>
 
-      <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
+      <div className="flex flex-1 flex-col overflow-hidden lg:min-h-0 lg:flex-row">
         {/* 侧栏 */}
         <aside className="flex w-full flex-none flex-col border-b border-zinc-200/70 lg:w-72 lg:border-b-0 lg:border-r dark:border-zinc-800">
           <div className="space-y-2 p-3">
@@ -89,28 +89,49 @@ export default function Dashboard({ siteTitle, dark, toggle, logout, onAuthError
           </div>
           <nav className="max-h-[38vh] flex-1 space-y-1 overflow-y-auto px-3 pb-3 lg:max-h-none">
             {loadErr && <p className="px-2 text-xs text-red-500">{loadErr}</p>}
-            {filtered.map((m, i) => {
-              const st = STATE[m.state] || STATE.pending;
-              const active = m.id === selectedId && view === "monitors";
-              return (
-                <button key={m.id}
-                  onClick={() => { setSelectedId(m.id); setView("monitors"); }}
-                  className={`rise w-full rounded-xl px-3 py-2.5 text-left transition-colors
-                    ${active ? "bg-green-500/10 ring-1 ring-green-500/30" : "hover:bg-zinc-100 dark:hover:bg-zinc-800/70"}`}
-                  style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}>
-                  <div className="flex items-center gap-2">
-                    <span className={`h-2 w-2 flex-none rounded-full ${st.dot}`} />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{m.name}</span>
-                    <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${st.chip}`}>
-                      {fmtPct(m.uptime?.h24, 1)}
-                    </span>
-                  </div>
-                  <div className="mt-1 pl-4 text-[11px] text-zinc-400">
-                    {m.paused ? "已暂停" : `上次检测 ${fmtAgo(m.status?.lastCheckAt, now)}`}
-                  </div>
-                </button>
-              );
-            })}
+            {(() => {
+              // 按监控项 group 分区显示（未设置的归入默认分区）；只有一组时不显示组头
+              const order = [];
+              const byGroup = new Map();
+              for (const m of filtered) {
+                const g = (m.group || "").trim();
+                if (!byGroup.has(g)) { byGroup.set(g, []); order.push(g); }
+                byGroup.get(g).push(m);
+              }
+              const showHeaders = order.length > 1;
+              let seq = 0;
+              return order.map((g) => (
+                <div key={g || "_default"}>
+                  {showHeaders && (
+                    <p className="px-2 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                      {g || "默认分组"} · {byGroup.get(g).length}
+                    </p>
+                  )}
+                  {byGroup.get(g).map((m) => {
+                    const st = STATE[m.state] || STATE.pending;
+                    const active = m.id === selectedId && view === "monitors";
+                    return (
+                      <button key={m.id}
+                        onClick={() => { setSelectedId(m.id); setView("monitors"); }}
+                        className={`rise w-full rounded-xl px-3 py-2.5 text-left transition-colors
+                          ${active ? "bg-green-500/10 ring-1 ring-green-500/30" : "hover:bg-zinc-100 dark:hover:bg-zinc-800/70"}`}
+                        style={{ animationDelay: `${Math.min((seq++) * 50, 400)}ms` }}>
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2 w-2 flex-none rounded-full ${st.dot}`} />
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium">{m.name}</span>
+                          <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${st.chip}`}>
+                            {fmtPct(m.uptime?.h24, 1)}
+                          </span>
+                        </div>
+                        <div className="mt-1 pl-4 text-[11px] text-zinc-400">
+                          {m.paused ? "已暂停" : `上次检测 ${fmtAgo(m.status?.lastCheckAt, now)}`}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ));
+            })()}
             {!filtered.length && !loadErr && (
               <p className="px-2 py-6 text-center text-xs text-zinc-400">没有监控项</p>
             )}

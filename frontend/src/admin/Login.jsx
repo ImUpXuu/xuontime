@@ -6,9 +6,10 @@ import { api, setToken } from "./api.js";
 const CAP_ENDPOINT = "https://cap.upxuu.com/56d71eb14d/";
 
 // 首次初始化 / 登录
-export default function Login({ mode, onAuthed }) {
+export default function Login({ mode, onAuthed, totp }) {
   const [pw1, setPw1] = useState("");
   const [pw2, setPw2] = useState("");
+  const [totpCode, setTotpCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [capToken, setCapToken] = useState("");
@@ -45,11 +46,12 @@ export default function Login({ mode, onAuthed }) {
     setErr("");
     if (mode === "setup" && pw1 !== pw2) return setErr("两次输入的密码不一致");
     if (!capToken) return setErr("请先完成人机验证");
+    if (totp && !/^\d{6}$/.test(totpCode)) return setErr("请输入验证器的 6 位验证码");
     setBusy(true);
     try {
       const body = mode === "setup"
         ? { password: pw1, captchaToken: capToken }
-        : { password: pw2, captchaToken: capToken };
+        : { password: pw2, captchaToken: capToken, totp: totpCode };
       const r = mode === "setup"
         ? await api("/api/setup", { body })
         : await api("/api/login", { body });
@@ -87,6 +89,14 @@ export default function Login({ mode, onAuthed }) {
             required value={pw2} onChange={(e) => setPw2(e.target.value)}
             className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm outline-none transition-colors focus:border-green-500 dark:border-zinc-700 dark:bg-zinc-800"
           />
+          {totp && mode !== "setup" && (
+            <input
+              type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+              placeholder="两步验证码（验证器 6 位）" required value={totpCode}
+              onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ""))}
+              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm tracking-[0.3em] outline-none transition-colors focus:border-green-500 dark:border-zinc-700 dark:bg-zinc-800"
+            />
+          )}
           <cap-widget
             key={capAttempt}
             ref={capRef}

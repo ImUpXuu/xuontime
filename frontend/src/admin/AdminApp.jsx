@@ -8,12 +8,14 @@ export default function AdminApp() {
   const { dark, toggle } = useTheme();
   const [phase, setPhase] = useState("loading"); // loading | setup | login | ready
   const [siteTitle, setSiteTitle] = useState("Xuontime");
+  const [totp, setTotp] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const { required } = await api("/api/setup");
-        if (required) setPhase("setup");
+        const r = await api("/api/setup");
+        setTotp(!!r.totp);
+        if (r.required) setPhase("setup");
         else if (getToken()) setPhase("ready");
         else setPhase("login");
       } catch {
@@ -48,6 +50,7 @@ export default function AdminApp() {
         onAuthed={onAuthed}
         dark={dark}
         toggle={toggle}
+        totp={totp}
       />
     );
   }

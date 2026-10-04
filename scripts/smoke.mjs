@@ -1,7 +1,9 @@
 // 本地纯逻辑冒烟测试（不依赖 Workers 运行时 / D1）：
-// auth（PBKDF2+HMAC）、validate、checkers（http/push/状态码/并发池，TCP 与证书走 wrangler dev 端到端）
+// auth（PBKDF2+HMAC）、validate、checkers（http/push/状态码/并发池，TCP 与证书走 wrangler dev 端到端）、
+// totp（RFC 6238 标准向量）
 // 运行：node scripts/smoke.mjs
 import http from "node:http";
+import { verifyTotp, base32Encode, base32Decode, otpauthUri } from "../src/lib/totp.js";
 
 let passed = 0;
 let failed = 0;
@@ -110,6 +112,31 @@ await runPool([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
   await new Promise((r) => setTimeout(r, 5));
 });
 assert(counter === 7 && new Set(seen).size === 7, `并发池执行全量且不重复（${counter}）`);
+
+// ---------- TOTP（RFC 6238 标准向量，SHA-1 / 6 位） ----------
+// secret = ASCII "12345678901234567890"
+const RFC_SECRET_B32 = base32Encode(new TextEncoder().encode("12345678901234567890"));
+assert(RFC_SECRET_B32 === "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", "base32 编码符合 RFC 向量");
+assert(new TextDecoder().decode(base32Decode(RFC_SECRET_B32)) === "12345678901234567890", "base32 解码还原");
+const TOTP_VECTORS = [
+  [59_000, "287082"],
+  [1_111_111_109_000, "081804"],
+  [1_111_111_111_000, "050471"],
+  [1_234_567_890_000, "005924"],
+  [2_000_000_000_000, "279037"],
+  [20_000_000_000_000, "353130"],
+];
+for (const [t, code] of TOTP_VECTORS) {
+  assert(await verifyTotp(RFC_SECRET_B32, code, { now: t, window: 0 }), `TOTP t=${t} → ${code}`);
+  assert(!(await verifyTotp(RFC_SECRET_B32, String((Number(code) + 1) % 1000000).padStart(6, "0"), { now: t, window: 0 })),
+    `TOTP t=${t} 错误码拒绝`);
+}
+assert(await verifyTotp(RFC_SECRET_B32, TOTP_VECTORS[2][1], { now: TOTP_VECTORS[2][0] + 30_000, window: 1 }),
+  "TOTP ±1 步时钟偏移容忍");
+assert(await verifyTotp(RFC_SECRET_B32, " 287 082 ", { now: 59_000, window: 0 }), "TOTP 忽略空格");
+assert(!(await verifyTotp(RFC_SECRET_B32, "28708", { now: 59_000, window: 0 })), "TOTP 非 6 位拒绝");
+assert(otpauthUri("ABC234DEF").startsWith("otpauth://totp/Xuontime:Xuontime?secret=ABC234DEF&issuer=Xuontime"),
+  "otpauth URI 格式");
 
 httpServer.close();
 console.log(`\n========== 结果：${passed} 通过，${failed} 失败 ==========`);

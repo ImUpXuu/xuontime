@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, copyText } from "./api.js";
 
 // 新建 / 编辑监控弹窗
-export default function MonitorForm({ editing, onClose, onSaved, guard }) {
+export default function MonitorForm({ editing, monitors, onClose, onSaved, guard }) {
   const existing = editing || null;
   const [type, setType] = useState(existing?.type || "http");
   const [busy, setBusy] = useState(false);
